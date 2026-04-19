@@ -1,0 +1,36 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocritic
+    - revive
+    - misspell
+    - unconvert
+    - unparam
+    - bodyclose
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+        - singleCaseSwitch
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-same-issues: 0
