@@ -368,7 +368,7 @@ go test ./...   # unit tests
 
 ## Contributing
 
-Issues, PRs, and feedback are very welcome. The codebase was largely written with AI assistance (Claude Code), so there are likely rough edges — bug reports and code reviews are especially appreciated.
+Issues, PRs, and feedback are very welcome. Parts of this codebase were written with AI assistance, so bug reports and code reviews are especially appreciated.
 
 If you're adding a factory: one file per factory in `internal/factories/`, implement `seedapi.Factory` (optionally `seedapi.Matcher`), register in `All()`, add a test case in `match_test.go`.
 
