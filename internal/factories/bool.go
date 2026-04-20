@@ -8,9 +8,8 @@ func (boolMech) Name() string   { return "bool" }
 func (boolMech) Tags() []string { return []string{"logic"} }
 
 func (boolMech) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
-	// Boolean — единственный тип с однозначной семантикой (true/false).
-	// WeakNameMatch: достаточно, чтобы не попасть в unresolved, но ниже
-	// NameMatch — любой пользовательский плагин с name-based сигналом победит.
+	// Boolean is unambiguous (true/false). WeakNameMatch keeps it out of unresolved
+	// while still letting any user plugin with a name-based signal win.
 	if isBool(ctx.Column) {
 		return seedapi.WeakNameMatch
 	}

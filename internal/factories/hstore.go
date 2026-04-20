@@ -13,9 +13,8 @@ func (hstoreMech) Name() string   { return "hstore" }
 func (hstoreMech) Tags() []string { return []string{"hstore"} }
 
 func (hstoreMech) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
-	// UDT hstore — однозначный маркер: дефолтная генерация пар ключ-значение
-	// всегда уместна. WeakNameMatch — не unresolved, но уступает плагину
-	// с NameMatch.
+	// The hstore UDT is unambiguous; generating key-value pairs is always sensible.
+	// WeakNameMatch keeps it resolved but yields to any plugin returning NameMatch.
 	if strings.EqualFold(ctx.Column.UDTName, "hstore") {
 		return seedapi.WeakNameMatch
 	}

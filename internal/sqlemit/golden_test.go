@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/ivannikolaev/seed-cli/cli/internal/config"
+	"github.com/ivannikolaev/seed-cli/cli/internal/factories"
 	"github.com/ivannikolaev/seed-cli/cli/internal/registry"
 	"github.com/ivannikolaev/seed-cli/cli/internal/relations"
 	"github.com/ivannikolaev/seed-cli/cli/internal/sqlemit"
+	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
 )
 
 // updateGolden lets contributors refresh the golden SQL after an intentional
@@ -65,6 +67,74 @@ func TestGoldenGenerate(t *testing.T) {
 	if !bytes.Equal(normalized, want) {
 		t.Errorf("generated SQL diverged from golden.\nRun with -update after reviewing the diff:\n  go test ./internal/sqlemit -run TestGolden -update\n\n--- got ---\n%s\n--- want ---\n%s", normalized, want)
 	}
+}
+
+// TestGoldenWithPlugin is a regression guard that includes a user-provided
+// custom factory (my_rating) alongside the built-in registry. It proves that
+// the generate pipeline honours factories registered outside factories.All().
+func TestGoldenWithPlugin(t *testing.T) {
+	root := filepath.Join("..", "..", "testdata", "golden-plugin")
+
+	cfg, err := config.Load(filepath.Join(root, "seed.yaml"))
+	if err != nil {
+		t.Fatalf("load golden-plugin config: %v", err)
+	}
+	g, err := relations.Build(cfg)
+	if err != nil {
+		t.Fatalf("build relations: %v", err)
+	}
+	plan := g.PlanFor(cfg)
+
+	// Builtins + the custom factory under test.
+	mechs := append([]seedapi.Factory{}, factories.All()...)
+	mechs = append(mechs, myRatingFactory{})
+	reg := registry.New(mechs)
+
+	em := sqlemit.New(cfg, reg, plan, sqlemit.Options{
+		Locale: cfg.Defaults.Locale,
+		Seed:   cfg.Defaults.Seed,
+	})
+	var got bytes.Buffer
+	if err := em.Emit(&got); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+
+	goldenPath := filepath.Join(root, "expected.sql")
+	normalized := normalizeSQL(got.Bytes())
+
+	if *updateGolden {
+		if err := os.WriteFile(goldenPath, normalized, 0o644); err != nil {
+			t.Fatalf("update golden-plugin: %v", err)
+		}
+		t.Logf("updated %s", goldenPath)
+		return
+	}
+
+	want, err := os.ReadFile(goldenPath)
+	if os.IsNotExist(err) {
+		// Bootstrap: write the file on first run so the next run can compare.
+		if err := os.WriteFile(goldenPath, normalized, 0o644); err != nil {
+			t.Fatalf("bootstrap golden-plugin: %v", err)
+		}
+		t.Logf("bootstrapped %s — commit this file and rerun to pin the golden", goldenPath)
+		return
+	}
+	if err != nil {
+		t.Fatalf("read golden-plugin: %v", err)
+	}
+	if !bytes.Equal(normalized, want) {
+		t.Errorf("generated SQL diverged from golden-plugin.\nRun with -update after reviewing the diff:\n  go test ./internal/sqlemit -run TestGoldenWithPlugin -update\n\n--- got ---\n%s\n--- want ---\n%s", normalized, want)
+	}
+}
+
+// myRatingFactory is the canonical example of a user-provided custom factory.
+// It generates star ratings 1–5 and matches columns whose name contains "rating".
+type myRatingFactory struct{}
+
+func (myRatingFactory) Name() string   { return "my_rating" }
+func (myRatingFactory) Tags() []string { return []string{"rating"} }
+func (myRatingFactory) Generate(ctx seedapi.GenContext) any {
+	return ctx.Rng.IntN(5) + 1
 }
 
 // normalizeSQL replaces the generation timestamp with a fixed placeholder so

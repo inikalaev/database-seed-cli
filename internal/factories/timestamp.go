@@ -18,11 +18,11 @@ func (timestampMech) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
 	if !isTimestamp(ctx.Column) {
 		return seedapi.NoMatch
 	}
-	// Имена с суффиксами `_at/_on/_date/_time` (created_at, start_date,
-	// action_time, applied_on, …) однозначно обозначают момент времени. Даём
-	// WeakNameMatch — не unresolved, но пользовательский плагин с NameMatch
-	// перебивает. Голый `timestamp` без name-сигнала остаётся на TypeMatch
-	// (→ unresolved) — user должен явно решить, что в этой колонке.
+	// Columns with suffixes `_at/_on/_date/_time` (created_at, start_date,
+	// action_time, applied_on, …) clearly represent a point in time. WeakNameMatch
+	// keeps them resolved while a user plugin returning NameMatch still wins.
+	// A bare timestamp column with no name signal stays at TypeMatch (→ unresolved)
+	// so the user decides what belongs there.
 	if nameMatches(ctx.Column, `_at$`, `_on$`, `_date$`, `_time$`, `^deadline$`, `^applied$`) {
 		return seedapi.WeakNameMatch
 	}

@@ -12,8 +12,8 @@ func (dateMech) Name() string   { return "date" }
 func (dateMech) Tags() []string { return []string{"time"} }
 
 func (dateMech) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
-	// Тип date однозначен, дефолт "случайная дата в окне" осмыслен — возвращаем
-	// WeakNameMatch: не unresolved, но плагин с NameMatch перебьёт.
+	// The date type is unambiguous and a random date within a window is always
+	// sensible. WeakNameMatch keeps it resolved; a NameMatch plugin still wins.
 	if isDate(ctx.Column) {
 		return seedapi.WeakNameMatch
 	}

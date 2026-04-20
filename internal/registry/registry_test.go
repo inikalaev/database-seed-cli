@@ -49,11 +49,10 @@ func TestInferUnresolved(t *testing.T) {
 	}
 }
 
-// TestInferPicksNamedOverGeneric — guard на инвариант: именованная числовая
-// фабрика (amount, percentage, latitude, …) должна выигрывать над generic
-// intMech/decimalMech/boolMech/dateMech/hstoreMech. После перевода generic
-// на WeakNameMatch это зависит не от load-bearing порядка регистрации в
-// factories.All(), а от score (NameMatch > WeakNameMatch).
+// TestInferPicksNamedOverGeneric guards the invariant that a named numeric factory
+// (amount, percentage, latitude, …) beats the generic intMech/decimalMech/boolMech/
+// dateMech/hstoreMech. Since generics now return WeakNameMatch, this is driven by
+// score (NameMatch > WeakNameMatch), not by registration order in factories.All().
 func TestInferPicksNamedOverGeneric(t *testing.T) {
 	r := New(factories.All())
 	cases := []struct {
@@ -85,17 +84,17 @@ func TestInferPicksNamedOverGeneric(t *testing.T) {
 	}
 }
 
-// TestInferPluginWinsOverGeneric — ключевой guard по итогам ревью: пользовательский
-// плагин, возвращающий NameMatch(70), должен перебивать встроенный generic
-// (boolMech/intMech/decimalMech/dateMech/hstoreMech), который теперь даёт
-// WeakNameMatch(60). До правки оба возвращали NameMatch и встроенный выигрывал
-// за счёт более раннего порядка регистрации — это был silent breaking change.
+// TestInferPluginWinsOverGeneric is a key regression guard: a user plugin returning
+// NameMatch(70) must beat the built-in generic (boolMech/intMech/decimalMech/
+// dateMech/hstoreMech) which now returns WeakNameMatch(60). Before the fix both
+// returned NameMatch and the builtin won by registration order — a silent breaking
+// change for plugin authors.
 func TestInferPluginWinsOverGeneric(t *testing.T) {
 	plugin := testPluginFactory{
 		name:  "my_plugin",
 		match: seedapi.NameMatch,
 	}
-	// Важно: плагин идёт ПОСЛЕ билтинов — именно этот порядок ломал плагины до фикса.
+	// Plugin is appended AFTER builtins — the order that broke plugins before the fix.
 	mechs := append([]seedapi.Factory{}, factories.All()...)
 	mechs = append(mechs, plugin)
 	r := New(mechs)
@@ -125,11 +124,11 @@ func TestInferPluginWinsOverGeneric(t *testing.T) {
 	}
 }
 
-// TestInferPluginTieLosesToBuiltinByOrder — оборотная сторона предыдущего теста:
-// если плагин объявляет score WeakNameMatch (равный generic builtin), tie-break
-// идёт по порядку регистрации — builtin зарегистрирован раньше и выигрывает.
-// Это наблюдаемый контракт: плагины перебивают generic только с NameMatch или
-// выше, а не с тем же WeakNameMatch.
+// TestInferPluginTieLosesToBuiltinByOrder is the counterpart to the previous test:
+// when a plugin declares WeakNameMatch (equal to the generic builtin), tie-breaking
+// falls back to registration order — the builtin registered earlier wins. This is
+// the observable contract: plugins beat generics only at NameMatch or higher, not
+// at the same WeakNameMatch level.
 func TestInferPluginTieLosesToBuiltinByOrder(t *testing.T) {
 	plugin := testPluginFactory{
 		name:  "my_plugin",
@@ -152,8 +151,8 @@ func TestInferPluginTieLosesToBuiltinByOrder(t *testing.T) {
 	}
 }
 
-// testPluginFactory — минимальный stub для проверки tie-break между билтинами
-// и плагинами. Match() возвращает фиксированный score для любой колонки.
+// testPluginFactory is a minimal stub for verifying tie-breaking between builtins
+// and plugins. Match() returns a fixed score for any column.
 type testPluginFactory struct {
 	name  string
 	match seedapi.MatchScore

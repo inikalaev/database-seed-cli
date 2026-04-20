@@ -61,11 +61,11 @@ type InferenceResult struct {
 // If a factory implements seedapi.Matcher its Match() is called; otherwise
 // the registry auto-scores by Name() (StrongMatch) and Tags() (NameMatch).
 //
-// После введения WeakNameMatch(60) generic builtin'ы (bool/int/decimal/date/
-// hstore/timestamp-by-pattern) больше не конкурируют с именованными фабриками
-// на tie: NameMatch(70) выигрывает над WeakNameMatch(60) по score напрямую,
-// независимо от порядка. Tie-break реально значим только для фабрик одного
-// tier — обычно между плагинами или между WeakNameMatch-плагином и WeakNameMatch-builtin.
+// Since WeakNameMatch(60) was introduced, generic builtins (bool/int/decimal/date/
+// hstore/timestamp-by-pattern) no longer compete with named factories on a tie:
+// NameMatch(70) beats WeakNameMatch(60) by score alone, regardless of registration
+// order. Tie-breaking is only meaningful within the same tier — typically between
+// two plugins or between a WeakNameMatch plugin and a WeakNameMatch builtin.
 func (r *Registry) Infer(col seedapi.Column, locale string) InferenceResult {
 	ctx := seedapi.MatchContext{Column: col, Locale: locale}
 	var best seedapi.Factory
@@ -83,12 +83,12 @@ func (r *Registry) Infer(col seedapi.Column, locale string) InferenceResult {
 		}
 	}
 	res := InferenceResult{Factory: best, Score: bestScore}
-	// Порог unresolved — WeakNameMatch. TypeMatch (generic-без-name-сигнала,
-	// вроде голого `timestamp` или integer-со-status в имени) остаётся
-	// unresolved, чтобы user проверил дефолт. Всё с WeakNameMatch+ — считается
-	// достаточно уверенным (generic-type-с-осмысленным-дефолтом: bool, date,
-	// decimal, hstore, ненормальный integer, timestamp по паттерну). При этом
-	// любой плагин с NameMatch или выше перебивает WeakNameMatch.
+	// Unresolved threshold is WeakNameMatch. TypeMatch (type-only signal without a
+	// name hint, e.g. bare `timestamp` or integer named `status`) stays unresolved
+	// so the user reviews the default. WeakNameMatch and above is considered
+	// confident enough (generic type with a sensible default: bool, date, decimal,
+	// hstore, ordinary integer, timestamp by name pattern). Any plugin returning
+	// NameMatch or higher overrides WeakNameMatch.
 	if best == nil || bestScore < seedapi.WeakNameMatch {
 		res.Unresolved = true
 	}

@@ -37,27 +37,29 @@ const modulePath = "github.com/ivannikolaev/seed-cli/cli"
 // RunWithGenerators builds (or reuses) an augmented seed binary for the given
 // generators dir and re-executes the current process through it. Returns only
 // if the build step fails; on success it exec's and does not return.
-func RunWithGenerators(genDir string, argv []string) error {
+// Build compiles (or reuses from cache) an augmented seed binary for the given
+// generators dir and returns its path. SEED_CLI_SRC must be set.
+func Build(genDir string) (string, error) {
 	absDir, err := filepath.Abs(genDir)
 	if err != nil {
-		return fmt.Errorf("generators path: %w", err)
+		return "", fmt.Errorf("generators path: %w", err)
 	}
 	srcDir := os.Getenv("SEED_CLI_SRC")
 	if srcDir == "" {
-		return fmt.Errorf("SEED_CLI_SRC env var is not set — point it at this repo's ./cli directory to use --generators in MVP")
+		return "", fmt.Errorf("SEED_CLI_SRC env var is not set — point it at this repo's ./cli directory to use --generators in MVP")
 	}
 	absSrc, err := filepath.Abs(srcDir)
 	if err != nil {
-		return fmt.Errorf("SEED_CLI_SRC: %w", err)
+		return "", fmt.Errorf("SEED_CLI_SRC: %w", err)
 	}
 
 	hash, err := hashGeneratorDir(absDir, absSrc)
 	if err != nil {
-		return err
+		return "", err
 	}
 	cacheBase, err := cacheDir()
 	if err != nil {
-		return err
+		return "", err
 	}
 	buildDir := filepath.Join(cacheBase, hash)
 	binPath := filepath.Join(buildDir, "seed")
@@ -66,16 +68,27 @@ func RunWithGenerators(genDir string, argv []string) error {
 		// Start from a clean buildDir so a leftover go.sum from a prior failed
 		// `go mod tidy` doesn't poison this attempt.
 		if err := os.RemoveAll(buildDir); err != nil {
-			return fmt.Errorf("clean stale build dir: %w", err)
+			return "", fmt.Errorf("clean stale build dir: %w", err)
 		}
 		if err := materialize(buildDir, absDir, absSrc); err != nil {
-			return err
+			return "", err
 		}
 		if err := goBuild(buildDir, binPath); err != nil {
 			// Leave no partially-built dir behind — next run will retry fresh.
 			_ = os.RemoveAll(buildDir)
-			return err
+			return "", err
 		}
+	}
+	return binPath, nil
+}
+
+// RunWithGenerators builds (or reuses) an augmented seed binary for the given
+// generators dir and re-executes the current process through it. Returns only
+// if the build step fails; on success it exec's and does not return.
+func RunWithGenerators(genDir string, argv []string) error {
+	binPath, err := Build(genDir)
+	if err != nil {
+		return err
 	}
 
 	child := exec.Command(binPath, argv...)
@@ -210,14 +223,10 @@ func materialize(buildDir, genDir, srcDir string) error {
 		}
 	}
 	goVersion := readGoDirective(filepath.Join(srcDir, "go.mod"))
-	goMod := fmt.Sprintf(`module seed-augmented
-
-go %s
-
-require %s v0.0.0
-
-replace %s => %s
-`, goVersion, modulePath, modulePath, srcDir)
+	// Quote the local path in the replace directive so go.mod parses correctly
+	// even when the path contains spaces (e.g. "/Users/foo/My Project/cli").
+	goMod := fmt.Sprintf("module seed-augmented\n\ngo %s\n\nrequire %s v0.0.0\n\nreplace %s => %q\n",
+		goVersion, modulePath, modulePath, srcDir)
 	if err := os.WriteFile(filepath.Join(buildDir, "go.mod"), []byte(goMod), 0o644); err != nil {
 		return err
 	}

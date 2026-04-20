@@ -6,10 +6,10 @@ import (
 	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
 )
 
-// intMech — generic integer fallback. Owns WeakNameMatch для обычных integer-
-// колонок (не уйдут в unresolved, но любой плагин с NameMatch перебьёт) и
-// откатывается в TypeMatch (т.е. unresolved) для подозрительных имён:
-// осиротевший `*_id` без FK и enum-подобные `status/type`.
+// intMech is the generic integer fallback. It returns WeakNameMatch for ordinary
+// integer columns (resolved, but any NameMatch plugin wins) and falls back to
+// TypeMatch (unresolved) for suspicious names: orphan `*_id` without a FK target
+// and enum-like `status`/`type` columns.
 type intMech struct{}
 
 func (intMech) Name() string   { return "integer" }
@@ -20,18 +20,16 @@ func (intMech) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
 		return seedapi.NoMatch
 	}
 	lower := strings.ToLower(ctx.Column.Name)
-	// `*_id` без FKTarget — подозрительно: скорее всего это FK, у которой в БД
-	// не объявлен constraint. Остаёмся на TypeMatch (→ unresolved), чтобы user
-	// проверил (fkref + target).
+	// `*_id` without a FKTarget is suspicious: likely a FK with no declared
+	// constraint. Stay at TypeMatch (→ unresolved) so the user can wire up fkref.
 	if strings.HasSuffix(lower, "_id") && ctx.Column.FKTarget == "" {
 		return seedapi.TypeMatch
 	}
-	// Имена вокруг "status" / "type" (как отдельное слово с границами `_` или
-	// начала/конца имени) почти всегда означают enum/дискриминатор — случайный
-	// int даст бессмысленные значения. Оставляем unresolved — user явно решит
-	// (enum_value, CHECK-range, и т.д.). Regex'ы с границей слова защищают от
-	// false-positive: `prototype_number` или `subtype_sequence` теперь не
-	// попадают сюда.
+	// Names containing "status" or "type" as a whole word (bounded by `_` or
+	// start/end of name) almost always signal an enum or discriminator — a random
+	// int would be meaningless. Stay unresolved so the user picks explicitly
+	// (enum_value, CHECK range, etc.). Word-boundary regexes prevent false
+	// positives on names like `prototype_number` or `subtype_sequence`.
 	if nameMatches(ctx.Column, `(^|_)status(_|$)`, `(^|_)type(_|$)`) {
 		return seedapi.TypeMatch
 	}

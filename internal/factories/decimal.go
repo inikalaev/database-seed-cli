@@ -12,10 +12,9 @@ func (decimalMech) Name() string   { return "decimal" }
 func (decimalMech) Tags() []string { return []string{"numeric"} }
 
 func (decimalMech) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
-	// Тип numeric/float однозначен, дефолтный [0;10_000] осмыслен для типовых
-	// score/weight/percent. WeakNameMatch — не unresolved, но любая именованная
-	// фабрика (amount, percentage, latitude, …) и плагин с NameMatch
-	// перебивают её.
+	// numeric/float is unambiguous and [0, 10_000] is a sensible default for
+	// typical score/weight/percent columns. WeakNameMatch keeps it resolved while
+	// any named factory (amount, percentage, latitude, …) or NameMatch plugin wins.
 	if isNumeric(ctx.Column) {
 		return seedapi.WeakNameMatch
 	}

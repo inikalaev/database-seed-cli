@@ -31,10 +31,10 @@ type Column struct {
 
 // MatchScore is the output of inference: higher = more confident.
 // Convention: 0 = no match, 1–49 = weak (fallback), 50–89 = typical, 90+ = strong.
-// WeakNameMatch — порог "resolved/unresolved": всё что >= WeakNameMatch
-// считается «достаточно уверенно, unresolved не ставим». Generic-type-only
-// встроенные фабрики (bool/integer/decimal/date/hstore, timestamp по паттерну)
-// возвращают именно WeakNameMatch, чтобы любой плагин с NameMatch перебивал их.
+// WeakNameMatch is the resolved/unresolved threshold: any score >= WeakNameMatch
+// is considered confident enough to omit unresolved: true. Generic type-only
+// builtins (bool/integer/decimal/date/hstore, timestamp by name pattern) return
+// WeakNameMatch so that any plugin returning NameMatch beats them.
 type MatchScore int
 
 const (

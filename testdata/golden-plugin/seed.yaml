@@ -1,0 +1,15 @@
+version: 1
+database:
+    dialect: postgres
+    schemas: [public]
+defaults:
+    locale: en_US
+    seed: 42
+tables:
+    public.reviews:
+        row_count: 3
+        primary_key: [id]
+        columns:
+            id: {factory: pk_serial, data_type: integer}
+            rating: {factory: my_rating, data_type: integer}
+            comment: {factory: string, unresolved: true, data_type: text}
