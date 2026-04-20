@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/ivannikolaev/seed-cli/cli/internal/introspect"
@@ -15,6 +14,8 @@ type introspectOpts struct {
 	schemaFile string
 	schemas    []string
 	schemaAll  bool
+	only       []string
+	exclude    []string
 }
 
 func newIntrospectCmd() *cobra.Command {
@@ -33,6 +34,8 @@ func newIntrospectCmd() *cobra.Command {
 				SchemaFile: opts.schemaFile,
 				Schemas:    opts.schemas,
 				SchemaAll:  opts.schemaAll,
+				Only:       opts.only,
+				Exclude:    opts.exclude,
 			})
 			if err != nil {
 				return err
@@ -47,6 +50,7 @@ func newIntrospectCmd() *cobra.Command {
 	flags.StringVar(&opts.schemaFile, "schema-file", "", "Path to SQL DDL file (e.g. from pg_dump --schema-only)")
 	flags.StringSliceVar(&opts.schemas, "schema", nil, "PG schema to include (repeatable)")
 	flags.BoolVar(&opts.schemaAll, "schema-all", false, "Include every non-system schema")
-	_ = fmt.Sprint // silence
+	flags.StringSliceVar(&opts.only, "only", nil, "Include only these tables (comma-separated or repeatable).")
+	flags.StringSliceVar(&opts.exclude, "exclude", nil, "Exclude these tables (comma-separated or repeatable).")
 	return cmd
 }

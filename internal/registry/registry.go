@@ -6,62 +6,109 @@
 package registry
 
 import (
+	"strings"
+
+	"github.com/ivannikolaev/seed-cli/cli/internal/factories"
 	"github.com/ivannikolaev/seed-cli/cli/internal/schema"
 	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
 )
 
 type Registry struct {
-	ordered []seedapi.Mechanism
-	byName  map[string]seedapi.Mechanism
+	ordered []seedapi.Factory
+	byName  map[string]seedapi.Factory
 }
 
-func New(mechanisms []seedapi.Mechanism) *Registry {
-	r := &Registry{byName: map[string]seedapi.Mechanism{}}
+// New builds a registry from the given factories. Duplicates by Name() are
+// silently dropped — the first occurrence wins, so callers can safely pass
+// builtins followed by user-registered plugins without pre-dedup.
+func New(mechanisms []seedapi.Factory) *Registry {
+	r := &Registry{byName: map[string]seedapi.Factory{}}
 	for _, m := range mechanisms {
-		r.ordered = append(r.ordered, m)
+		if _, exists := r.byName[m.Name()]; exists {
+			continue
+		}
 		r.byName[m.Name()] = m
+		r.ordered = append(r.ordered, m)
 	}
 	return r
 }
 
-func (r *Registry) Get(name string) (seedapi.Mechanism, bool) {
+func (r *Registry) Get(name string) (seedapi.Factory, bool) {
 	m, ok := r.byName[name]
 	return m, ok
 }
 
-func (r *Registry) All() []seedapi.Mechanism { return r.ordered }
+func (r *Registry) All() []seedapi.Factory { return r.ordered }
 
-// InferenceResult carries the best mechanism and its confidence.
+// Default assembles the canonical registry: builtin factories first, then any
+// user-registered factories from init() via seedapi.Register. Single source of
+// truth shared by the CLI, pkg/seed, and third-party embeddings.
+func Default() *Registry {
+	mechs := append([]seedapi.Factory{}, factories.All()...)
+	mechs = append(mechs, seedapi.Default().All()...)
+	return New(mechs)
+}
+
+// InferenceResult carries the best factory and its confidence.
 type InferenceResult struct {
-	Mechanism  seedapi.Mechanism
+	Factory    seedapi.Factory
 	Score      seedapi.MatchScore
 	Unresolved bool
 }
 
-// Infer picks the highest-scoring mechanism for the column, ties broken by
-// registration order (i.e. the order in which mechanisms.All() returns them).
+// Infer picks the highest-scoring factory for the column, ties broken by
+// registration order (i.e. the order in which factories.All() returns them).
+// If a factory implements seedapi.Matcher its Match() is called; otherwise
+// the registry auto-scores by Name() (StrongMatch) and Tags() (NameMatch).
+//
+// После введения WeakNameMatch(60) generic builtin'ы (bool/int/decimal/date/
+// hstore/timestamp-by-pattern) больше не конкурируют с именованными фабриками
+// на tie: NameMatch(70) выигрывает над WeakNameMatch(60) по score напрямую,
+// независимо от порядка. Tie-break реально значим только для фабрик одного
+// tier — обычно между плагинами или между WeakNameMatch-плагином и WeakNameMatch-builtin.
 func (r *Registry) Infer(col seedapi.Column, locale string) InferenceResult {
 	ctx := seedapi.MatchContext{Column: col, Locale: locale}
-	var best seedapi.Mechanism
+	var best seedapi.Factory
 	var bestScore seedapi.MatchScore
-	for _, m := range r.ordered {
-		s := m.Match(ctx)
+	for _, f := range r.ordered {
+		var s seedapi.MatchScore
+		if m, ok := f.(seedapi.Matcher); ok {
+			s = m.Match(ctx)
+		} else {
+			s = autoMatch(f, col)
+		}
 		if s > bestScore {
-			best = m
+			best = f
 			bestScore = s
 		}
 	}
-	res := InferenceResult{Mechanism: best, Score: bestScore}
-	// If nothing scored, mark unresolved and fall back to a type-derived placeholder
-	// chosen by the caller (config layer decides the fallback name).
-	if best == nil || bestScore == seedapi.NoMatch {
-		res.Unresolved = true
-	} else if bestScore < seedapi.TypeMatch {
-		// Weak-match columns are still unresolved: the generic string fallback is
-		// technically a match, but we want the user to review.
+	res := InferenceResult{Factory: best, Score: bestScore}
+	// Порог unresolved — WeakNameMatch. TypeMatch (generic-без-name-сигнала,
+	// вроде голого `timestamp` или integer-со-status в имени) остаётся
+	// unresolved, чтобы user проверил дефолт. Всё с WeakNameMatch+ — считается
+	// достаточно уверенным (generic-type-с-осмысленным-дефолтом: bool, date,
+	// decimal, hstore, ненормальный integer, timestamp по паттерну). При этом
+	// любой плагин с NameMatch или выше перебивает WeakNameMatch.
+	if best == nil || bestScore < seedapi.WeakNameMatch {
 		res.Unresolved = true
 	}
 	return res
+}
+
+// autoMatch scores a factory against a column using Name() and Tags().
+// Both sides are normalised (lowercase, underscores and hyphens stripped)
+// before comparison so "first_name" matches "firstname" etc.
+func autoMatch(f seedapi.Factory, col seedapi.Column) seedapi.MatchScore {
+	colNorm := factories.NormName(col.Name)
+	if colNorm == factories.NormName(f.Name()) {
+		return seedapi.StrongMatch
+	}
+	for _, tag := range f.Tags() {
+		if strings.Contains(colNorm, factories.NormName(tag)) {
+			return seedapi.NameMatch
+		}
+	}
+	return seedapi.NoMatch
 }
 
 // ToAPIColumn converts an internal schema.Column into the public API type.

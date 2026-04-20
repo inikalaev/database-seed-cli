@@ -24,12 +24,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 )
 
 const modulePath = "github.com/ivannikolaev/seed-cli/cli"
@@ -63,16 +63,34 @@ func RunWithGenerators(genDir string, argv []string) error {
 	binPath := filepath.Join(buildDir, "seed")
 
 	if _, err := os.Stat(binPath); err != nil {
+		// Start from a clean buildDir so a leftover go.sum from a prior failed
+		// `go mod tidy` doesn't poison this attempt.
+		if err := os.RemoveAll(buildDir); err != nil {
+			return fmt.Errorf("clean stale build dir: %w", err)
+		}
 		if err := materialize(buildDir, absDir, absSrc); err != nil {
 			return err
 		}
 		if err := goBuild(buildDir, binPath); err != nil {
+			// Leave no partially-built dir behind — next run will retry fresh.
+			_ = os.RemoveAll(buildDir)
 			return err
 		}
 	}
 
-	args := append([]string{binPath}, argv...)
-	return syscall.Exec(binPath, args, os.Environ())
+	child := exec.Command(binPath, argv...)
+	child.Stdin = os.Stdin
+	child.Stdout = os.Stdout
+	child.Stderr = os.Stderr
+	child.Env = append(os.Environ(), "SEED_CLI_AUGMENTED=1")
+	if err := child.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		return err
+	}
+	os.Exit(0)
+	return nil
 }
 
 func cacheDir() (string, error) {
@@ -101,7 +119,62 @@ func hashGeneratorDir(dir, src string) (string, error) {
 		fmt.Fprintln(h, "file:", filepath.Base(f))
 		h.Write(data)
 	}
+	// Hash every .go file under SEED_CLI_SRC so edits to the CLI invalidate
+	// the augmented-binary cache. Without this, dev iteration on the core
+	// re-executes stale cached binaries.
+	if err := hashTreeGoFiles(h, src); err != nil {
+		return "", err
+	}
+	// Dependency changes (new imports, version bumps) don't touch .go files
+	// but must still invalidate the cache.
+	for _, f := range []string{"go.mod", "go.sum"} {
+		data, err := os.ReadFile(filepath.Join(src, f))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", err
+		}
+		fmt.Fprintln(h, "dep:", f)
+		h.Write(data)
+	}
 	return hex.EncodeToString(h.Sum(nil))[:16], nil
+}
+
+func hashTreeGoFiles(h io.Writer, root string) error {
+	var files []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name == ".git" || name == "vendor" || name == "testdata" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".go") {
+			files = append(files, p)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("walk %s: %w", root, err)
+	}
+	sort.Strings(files)
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, f)
+		fmt.Fprintln(h, "core:", rel)
+		if _, err := h.Write(data); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func listGoFiles(dir string) ([]string, error) {
@@ -136,14 +209,15 @@ func materialize(buildDir, genDir, srcDir string) error {
 			return err
 		}
 	}
+	goVersion := readGoDirective(filepath.Join(srcDir, "go.mod"))
 	goMod := fmt.Sprintf(`module seed-augmented
 
-go 1.22
+go %s
 
 require %s v0.0.0
 
 replace %s => %s
-`, modulePath, modulePath, srcDir)
+`, goVersion, modulePath, modulePath, srcDir)
 	if err := os.WriteFile(filepath.Join(buildDir, "go.mod"), []byte(goMod), 0o644); err != nil {
 		return err
 	}
@@ -168,14 +242,40 @@ func main() {
 	return os.WriteFile(filepath.Join(buildDir, "main.go"), []byte(mainGo), 0o644)
 }
 
+// readGoDirective extracts the `go X.Y[.Z]` directive from a go.mod file.
+// Falls back to "1.22" if the file is missing or malformed — the augmented
+// build will still succeed on any reasonably recent toolchain.
+func readGoDirective(goModPath string) string {
+	data, err := os.ReadFile(goModPath)
+	if err != nil {
+		return "1.22"
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(line, "go "); ok {
+			v := strings.TrimSpace(rest)
+			if v != "" {
+				return v
+			}
+		}
+	}
+	return "1.22"
+}
+
 func rewriteWithPackage(src, dst string) error {
 	in, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
 	text := string(in)
-	// Replace first `package XXX` line with `package userplugins`.
-	idx := strings.Index(text, "package ")
+	// Find the package clause at the start of a line so we don't match
+	// "package" appearing inside a doc comment or string literal above it.
+	idx := -1
+	if strings.HasPrefix(text, "package ") {
+		idx = 0
+	} else if i := strings.Index(text, "\npackage "); i >= 0 {
+		idx = i + 1
+	}
 	if idx < 0 {
 		return fmt.Errorf("file %s has no package clause", src)
 	}
@@ -183,7 +283,7 @@ func rewriteWithPackage(src, dst string) error {
 	if end < 0 {
 		return fmt.Errorf("file %s has no newline after package clause", src)
 	}
-	rewritten := "package userplugins" + text[idx+end:]
+	rewritten := text[:idx] + "package userplugins" + text[idx+end:]
 	return os.WriteFile(dst, []byte(rewritten), 0o644)
 }
 
@@ -198,7 +298,7 @@ func goBuild(buildDir, binPath string) error {
 	}
 	build := exec.Command("go", "build", "-o", binPath, ".")
 	build.Dir = buildDir
-	build.Stdout = os.Stderr
+	build.Stdout = io.Discard
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
 		return fmt.Errorf("go build augmented seed: %w", err)

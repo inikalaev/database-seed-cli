@@ -102,8 +102,11 @@ func (d *DDL) parseColumnDef(el *pg_query.ColumnDef, pos int, m *schema.Model, s
 		Nullable: true,
 	}
 
+	var udtSchema string
 	if el.TypeName != nil {
-		col.DataType, col.UDTName = resolveTypeName(el.TypeName)
+		var dims int
+		col.DataType, col.UDTName, udtSchema, dims = resolveTypeName(el.TypeName)
+		col.ArrayDims = dims
 	}
 
 	// is_not_null is set by the parser for NOT NULL shorthand in ColumnDef
@@ -165,11 +168,16 @@ func (d *DDL) parseColumnDef(el *pg_query.ColumnDef, pos int, m *schema.Model, s
 		col.Nullable = false
 	}
 
-	// Link enum
+	// Link enum. udtSchema comes from the written type (`schema.name`); if the
+	// DDL used a bare name, fall back to the table's schema.
 	if strings.EqualFold(col.DataType, "USER-DEFINED") {
+		enumSchema := udtSchema
+		if enumSchema == "" {
+			enumSchema = sName
+		}
 		for _, e := range m.Enums {
-			if e.Schema == sName && e.Name == col.UDTName {
-				col.EnumName = e.Name
+			if e.Schema == enumSchema && e.Name == col.UDTName {
+				col.EnumName = e.Schema + "." + e.Name
 				break
 			}
 		}
@@ -268,24 +276,42 @@ func (d *DDL) parseFKConstraint(con *pg_query.Constraint, srcSchema string) sche
 	return fk
 }
 
-// resolveTypeName maps a pg_query TypeName to (dataType, udtName) using
-// the same conventions as information_schema.columns.
-func resolveTypeName(tn *pg_query.TypeName) (dataType, udtName string) {
+// resolveTypeName maps a pg_query TypeName to (dataType, udtName, udtSchema, arrayDims).
+// Mirrors information_schema.columns conventions: udtName is the unqualified
+// type name (prefixed with `_` for arrays, matching pg_catalog); udtSchema is
+// the qualifier if one was written in the DDL (empty → caller should fall
+// back to the table's schema). arrayDims is 0 for non-array types.
+func resolveTypeName(tn *pg_query.TypeName) (dataType, udtName, udtSchema string, arrayDims int) {
 	var parts []string
 	for _, n := range tn.Names {
 		if s := nodeString(n); s != "" && s != "pg_catalog" {
 			parts = append(parts, s)
 		}
 	}
-	raw := strings.ToLower(strings.Join(parts, "."))
-
-	isArray := len(tn.ArrayBounds) > 0
-
-	dt := pgCatalogToInfoSchema(raw)
-	if isArray {
-		return "ARRAY", "_" + raw
+	lowered := make([]string, len(parts))
+	for i, p := range parts {
+		lowered[i] = strings.ToLower(p)
 	}
-	return dt, raw
+
+	// For qualified types (`schema.type`), split the qualifier off. For bare
+	// names, udtSchema stays empty and the caller picks a fallback.
+	var last, qual string
+	switch len(lowered) {
+	case 0:
+		return "", "", "", 0
+	case 1:
+		last = lowered[0]
+	default:
+		qual = lowered[len(lowered)-2]
+		last = lowered[len(lowered)-1]
+	}
+
+	dims := len(tn.ArrayBounds)
+	dt := pgCatalogToInfoSchema(last)
+	if dims > 0 {
+		return "ARRAY", "_" + last, qual, dims
+	}
+	return dt, last, qual, 0
 }
 
 func pgCatalogToInfoSchema(udt string) string {

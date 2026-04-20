@@ -11,13 +11,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/ivannikolaev/seed-cli/cli/internal/config"
-	"github.com/ivannikolaev/seed-cli/cli/internal/mechanisms"
 	"github.com/ivannikolaev/seed-cli/cli/internal/registry"
 	"github.com/ivannikolaev/seed-cli/cli/internal/relations"
 	"github.com/ivannikolaev/seed-cli/cli/internal/sqlemit"
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
 )
 
 type Config = config.Config
@@ -27,13 +26,12 @@ func Load(path string) (*Config, error) { return config.Load(path) }
 // Generate produces the SQL seed script in memory using the built-in mechanisms
 // plus anything user code has registered via seedapi.Register.
 func Generate(cfg *Config) ([]byte, error) {
-	reg := buildRegistry()
 	g, err := relations.Build(cfg)
 	if err != nil {
 		return nil, err
 	}
 	plan := g.PlanFor(cfg)
-	em := sqlemit.New(cfg, reg, plan, sqlemit.Options{Locale: cfg.Defaults.Locale, Seed: cfg.Defaults.Seed})
+	em := sqlemit.New(cfg, registry.Default(), plan, sqlemit.Options{Locale: cfg.Defaults.Locale, Seed: cfg.Defaults.Seed})
 	var buf bytes.Buffer
 	if err := em.Emit(&buf); err != nil {
 		return nil, err
@@ -41,38 +39,60 @@ func Generate(cfg *Config) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Apply generates the SQL and executes it against db inside a single transaction.
+// Apply generates the SQL and executes it against db, one statement at a time.
+// This is compatible with any database/sql driver regardless of multi-statement
+// support. Each statement is executed in sequence; the generated script opens
+// its own BEGIN/COMMIT so do not wrap Apply in another transaction.
 func Apply(ctx context.Context, db *sql.DB, cfg *Config) error {
 	script, err := Generate(cfg)
 	if err != nil {
 		return err
 	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, string(script)); err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("exec seed script: %w", err)
-	}
-	return tx.Commit()
-}
-
-func buildRegistry() *registry.Registry {
-	mechs := append([]seedapi.Mechanism{}, mechanisms.All()...)
-	mechs = append(mechs, seedapi.Default().All()...)
-	return registry.New(dedup(mechs))
-}
-
-func dedup(in []seedapi.Mechanism) []seedapi.Mechanism {
-	seen := map[string]bool{}
-	out := make([]seedapi.Mechanism, 0, len(in))
-	for _, m := range in {
-		if seen[m.Name()] {
-			continue
+	for _, stmt := range splitStatements(string(script)) {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("exec seed script: %w", err)
 		}
-		seen[m.Name()] = true
-		out = append(out, m)
+	}
+	return nil
+}
+
+// splitStatements splits a SQL script into individual semicolon-terminated
+// statements. Handles single-quoted string literals (including '' escapes) and
+// skips -- line comments so semicolons inside comments are not treated as
+// statement terminators.
+func splitStatements(sql string) []string {
+	var out []string
+	var buf strings.Builder
+	inStr := false
+	for i := 0; i < len(sql); i++ {
+		ch := sql[i]
+		switch {
+		case !inStr && ch == '-' && i+1 < len(sql) && sql[i+1] == '-':
+			for i < len(sql) && sql[i] != '\n' {
+				i++
+			}
+		case inStr && ch == '\'' && i+1 < len(sql) && sql[i+1] == '\'':
+			buf.WriteByte(ch)
+			buf.WriteByte(sql[i+1])
+			i++
+		case inStr && ch == '\'':
+			buf.WriteByte(ch)
+			inStr = false
+		case !inStr && ch == '\'':
+			buf.WriteByte(ch)
+			inStr = true
+		case !inStr && ch == ';':
+			if s := strings.TrimSpace(buf.String()); s != "" {
+				out = append(out, s)
+			}
+			buf.Reset()
+		default:
+			buf.WriteByte(ch)
+		}
+	}
+	if s := strings.TrimSpace(buf.String()); s != "" {
+		out = append(out, s)
 	}
 	return out
 }
+

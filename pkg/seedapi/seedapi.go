@@ -7,7 +7,6 @@
 package seedapi
 
 import (
-	"fmt"
 	"math/rand/v2"
 	"sync"
 )
@@ -32,16 +31,39 @@ type Column struct {
 
 // MatchScore is the output of inference: higher = more confident.
 // Convention: 0 = no match, 1–49 = weak (fallback), 50–89 = typical, 90+ = strong.
+// WeakNameMatch — порог "resolved/unresolved": всё что >= WeakNameMatch
+// считается «достаточно уверенно, unresolved не ставим». Generic-type-only
+// встроенные фабрики (bool/integer/decimal/date/hstore, timestamp по паттерну)
+// возвращают именно WeakNameMatch, чтобы любой плагин с NameMatch перебивал их.
 type MatchScore int
 
 const (
-	NoMatch      MatchScore = 0
-	WeakMatch    MatchScore = 10
-	TypeMatch    MatchScore = 40
-	NameMatch    MatchScore = 70
-	StrongMatch  MatchScore = 90
-	FKMatch      MatchScore = 100 // FK reference — never override without explicit user intent.
+	NoMatch       MatchScore = 0
+	WeakMatch     MatchScore = 10
+	TypeMatch     MatchScore = 40
+	WeakNameMatch MatchScore = 60
+	NameMatch     MatchScore = 70
+	StrongMatch   MatchScore = 90
+	FKMatch       MatchScore = 100 // FK reference — never override without explicit user intent.
 )
+
+// FactoryFKRef is the registered name of the built-in FK-reference factory.
+// relations.Build and other layers recognise this factory as the signal that a
+// column sources its value from the FK pool.
+const FactoryFKRef = "fkref"
+
+// FactoryEnumValue is the registered name of the built-in enum sampler factory.
+const FactoryEnumValue = "enum_value"
+
+// Cast wraps a value with an explicit Postgres type cast. Use it when a literal
+// needs `::type` appended in the emitted SQL — e.g. `'{}'::jsonb` as an element
+// inside `ARRAY[...]` where the array factory can't otherwise signal the
+// element type. `Value` is formatted by the normal literal rules, then
+// `::Type` is appended.
+type Cast struct {
+	Value any
+	Type  string
+}
 
 // Params carries user-provided configuration for a mechanism (from YAML `params`).
 type Params map[string]any
@@ -103,28 +125,48 @@ type FKPool interface {
 	Pick(schema, table, column string, rng *rand.Rand) (any, bool)
 }
 
-// Mechanism is the interface user code implements.
-type Mechanism interface {
+// Factory is the interface user code implements.
+// Tags() doubles as column-name patterns for auto-matching: the registry
+// scores Name() as StrongMatch and each tag as NameMatch (substring,
+// case-insensitive, underscores/hyphens stripped).
+// Implement Matcher to override auto-matching with custom scoring logic.
+type Factory interface {
 	Name() string
 	Tags() []string
-	Match(ctx MatchContext) MatchScore
 	Generate(ctx GenContext) any
+}
+
+// Matcher is an optional interface a Factory can implement to override
+// the default name/tag-based inference.
+type Matcher interface {
+	Match(ctx MatchContext) MatchScore
+}
+
+// UniqueGenerator may be implemented by a Factory to declare that its Generate
+// output is guaranteed unique across all rows within a single Emit call.
+// validate uses this to suppress false warnings on UNIQUE-constrained columns.
+type UniqueGenerator interface {
+	Factory
+	UniquePerRow() bool
 }
 
 // Registry collects mechanisms discovered at init() time.
 type Registry struct {
 	mu       sync.RWMutex
-	byName   map[string]Mechanism
-	ordered  []Mechanism
+	byName   map[string]Factory
+	ordered  []Factory
 }
 
-var global = &Registry{byName: map[string]Mechanism{}}
+var global = &Registry{byName: map[string]Factory{}}
 
-func Register(m Mechanism) {
+// Register adds a factory to the global registry. First registration wins —
+// later duplicates by Name() are silently dropped, matching registry.New. This
+// lets a plugin file be accidentally imported twice without crashing the CLI.
+func Register(m Factory) {
 	global.mu.Lock()
 	defer global.mu.Unlock()
 	if _, exists := global.byName[m.Name()]; exists {
-		panic(fmt.Sprintf("seedapi: mechanism %q registered twice", m.Name()))
+		return
 	}
 	global.byName[m.Name()] = m
 	global.ordered = append(global.ordered, m)
@@ -132,15 +174,15 @@ func Register(m Mechanism) {
 
 func Default() *Registry { return global }
 
-func (r *Registry) All() []Mechanism {
+func (r *Registry) All() []Factory {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]Mechanism, len(r.ordered))
+	out := make([]Factory, len(r.ordered))
 	copy(out, r.ordered)
 	return out
 }
 
-func (r *Registry) Get(name string) (Mechanism, bool) {
+func (r *Registry) Get(name string) (Factory, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	m, ok := r.byName[name]

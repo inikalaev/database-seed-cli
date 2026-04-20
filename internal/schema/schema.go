@@ -15,19 +15,63 @@ type Model struct {
 }
 
 type Table struct {
-	Schema      string
-	Name        string
-	Columns     []Column
-	PrimaryKey  []string
-	UniqueKeys  [][]string
-	ForeignKeys []ForeignKey
+	Schema             string
+	Name               string
+	Columns            []Column
+	PrimaryKey         []string
+	UniqueKeys         [][]string
+	PartialUniqueKeys  []PartialUniqueKey
+	ForeignKeys        []ForeignKey
+	CheckConstraints   []CheckConstraint
+	ExcludeConstraints []ExcludeConstraint
+	// TriggerPopulated is set when an INSERT into this table appears inside
+	// the body of a trigger function attached to some other table. Such
+	// tables (search indexes, audit logs, maintained counters) fill up as a
+	// side effect of seeding their sources, so the generator should default
+	// row_count to 0 and let triggers do the work. Users can still override.
+	TriggerPopulated bool
+	// Polymorphs lists polymorphic pointer pairs detected on this table —
+	// the Rails/ActiveRecord `X_type` (class name) + `X_id` (integer)
+	// convention. Candidates are left empty at introspect time; the user
+	// fills them in the config, and emit samples one per row to fill both
+	// columns atomically.
+	Polymorphs []PolymorphicKey
 }
 
-func (t Table) QualifiedName() string {
-	if t.Schema == "" || t.Schema == "public" {
-		return t.Name
-	}
-	return t.Schema + "." + t.Name
+// PolymorphicKey names a pair of columns representing a single logical
+// pointer to one of several parent tables. TypeColumn holds a string
+// identifier (conventionally the Rails class name, e.g. "User") and
+// IdColumn holds the PK of that parent.
+type PolymorphicKey struct {
+	TypeColumn string
+	IdColumn   string
+}
+
+// PartialUniqueKey is a UNIQUE index with a WHERE clause (e.g. soft-delete
+// pattern `WHERE deleted_at IS NULL`). Not enforced by the generator — surfaced
+// as info so the user can decide whether to tune row_count or live with the risk.
+type PartialUniqueKey struct {
+	Columns   []string
+	Predicate string
+}
+
+// CheckConstraint captures a table-level CHECK. Expression is the raw SQL
+// (e.g. "price > 0"). Columns lists the columns referenced by the expression,
+// derived from pg_constraint.conkey.
+type CheckConstraint struct {
+	Name       string
+	Expression string
+	Columns    []string
+}
+
+// ExcludeConstraint captures an EXCLUDE constraint (e.g. range overlap
+// prevention via GIST). Definition is the raw `pg_get_constraintdef` output
+// (e.g. "EXCLUDE USING gist (room_id WITH =, during WITH &&)"). Columns lists
+// the columns from pg_constraint.conkey.
+type ExcludeConstraint struct {
+	Name       string
+	Definition string
+	Columns    []string
 }
 
 type Column struct {
@@ -47,16 +91,15 @@ type Column struct {
 }
 
 type ForeignKey struct {
-	Name           string
-	Columns        []string
-	RefSchema      string
-	RefTable       string
-	RefColumns     []string
-	OnDelete       string
-	OnUpdate       string
-	Deferrable     bool
-	InitDeferred   bool
-	MatchPartially bool
+	Name         string
+	Columns      []string
+	RefSchema    string
+	RefTable     string
+	RefColumns   []string
+	OnDelete     string
+	OnUpdate     string
+	Deferrable   bool
+	InitDeferred bool
 }
 
 type Enum struct {

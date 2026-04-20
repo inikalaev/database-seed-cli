@@ -10,8 +10,10 @@ import (
 type SKU struct{}
 
 func (SKU) Name() string   { return "sku" }
-func (SKU) Tags() []string { return []string{"product", "inventory"} }
+func (SKU) Tags() []string { return []string{"article", "product_code"} }
 
+// Match implements seedapi.Matcher for regex-based column matching.
+// Without this, the registry auto-matches via Name() and Tags() above.
 func (SKU) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
 	if ok, _ := regexp.MatchString(`(?i)^sku$|article|product_code`, ctx.Column.Name); ok {
 		return seedapi.StrongMatch

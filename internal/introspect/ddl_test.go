@@ -16,10 +16,11 @@ CREATE TABLE public.users (
 );
 
 CREATE TABLE public.orders (
-    id         bigserial    PRIMARY KEY,
-    user_id    integer      NOT NULL,
-    status     order_status NOT NULL DEFAULT 'pending',
-    total      numeric(12,2),
+    id              bigserial           PRIMARY KEY,
+    user_id         integer             NOT NULL,
+    status          order_status        NOT NULL DEFAULT 'pending',
+    status_qualified public.order_status NOT NULL DEFAULT 'pending',
+    total           numeric(12,2),
     CONSTRAINT orders_user_fk FOREIGN KEY (user_id) REFERENCES public.users (id) ON DELETE CASCADE
 );
 
@@ -68,8 +69,6 @@ func TestDDLIntrospect(t *testing.T) {
 		t.Errorf("users columns: %d", len(users.Columns))
 	}
 
-	// email NOT NULL
-	var emailCol, idCol *struct{ nullable bool }
 	for _, c := range users.Columns {
 		switch c.Name {
 		case "email":
@@ -82,8 +81,6 @@ func TestDDLIntrospect(t *testing.T) {
 			}
 		}
 	}
-	_ = emailCol
-	_ = idCol
 
 	orders := m.FindTable("public", "orders")
 	if orders == nil {
@@ -97,10 +94,14 @@ func TestDDLIntrospect(t *testing.T) {
 		t.Errorf("orders FK: %+v", fk)
 	}
 
-	// status column links to enum
+	// Enum linkage: both bare (`order_status`) and qualified (`public.order_status`)
+	// type references must resolve to the same EnumName.
 	for _, c := range orders.Columns {
-		if c.Name == "status" && c.EnumName != "order_status" {
-			t.Errorf("status EnumName: %q", c.EnumName)
+		switch c.Name {
+		case "status", "status_qualified":
+			if c.EnumName != "public.order_status" {
+				t.Errorf("%s EnumName: %q, want %q", c.Name, c.EnumName, "public.order_status")
+			}
 		}
 	}
 

@@ -1,0 +1,50 @@
+version: 1
+database:
+    dialect: postgres
+    schemas: [public]
+defaults:
+    locale: en_US
+    seed: 42
+tables:
+    public.categories:
+        row_count: 5
+        primary_key: [id]
+        columns:
+            id: {factory: pk_serial, data_type: integer}
+            name: {factory: full_name, data_type: text}
+            parent_id: {factory: fkref, params: {target: public.categories.id}, data_type: integer, nullable: true}
+    public.customers:
+        row_count: 5
+        primary_key: [id]
+        unique_keys:
+            - [email]
+        columns:
+            id: {factory: pk_serial, data_type: integer}
+            email: {factory: email, data_type: text}
+            first_name: {factory: first_name, data_type: text}
+            last_name: {factory: last_name, data_type: text}
+            created_at: {factory: timestamp, unresolved: true, data_type: timestamp with time zone}
+    public.orders:
+        row_count: 5
+        primary_key: [id]
+        columns:
+            id: {factory: pk_serial, data_type: integer}
+            customer_id: {factory: fkref, params: {target: public.customers.id}, data_type: integer}
+            product_id: {factory: fkref, params: {target: public.products.id}, data_type: uuid}
+            status: {factory: enum_value, params: {values: [pending, paid, shipped]}, data_type: USER-DEFINED}
+            total_amount: {factory: amount, data_type: numeric}
+            notes: {factory: string, unresolved: true, data_type: text, nullable: true}
+            created_at: {factory: timestamp, unresolved: true, data_type: timestamp with time zone}
+    public.products:
+        row_count: 5
+        primary_key: [id]
+        columns:
+            id: {factory: uuid, data_type: uuid}
+            category_id: {factory: fkref, params: {target: public.categories.id}, data_type: integer}
+            name: {factory: full_name, data_type: text}
+            price: {factory: amount, data_type: numeric}
+            active: {factory: bool, unresolved: true, data_type: boolean}
+            released_at: {factory: date, unresolved: true, data_type: date}
+            tags: {factory: array, params: {element: _text}, data_type: ARRAY}
+            metadata: {factory: json_any, unresolved: true, data_type: jsonb, nullable: true}
+            signature: {factory: bytea, data_type: bytea, nullable: true}
