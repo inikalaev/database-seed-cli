@@ -18,7 +18,7 @@ func All() []seedapi.Factory {
 		slugMech{}, colorMech{}, titleMech{}, genderMech{},
 		tokenMech{}, ipAddressMech{}, filenameMech{}, mimeTypeMech{},
 		usernameMech{}, currencyMech{}, languageCodeMech{},
-		enumValue{}, pkSerial{}, uuidMech{},
+		enumValue{}, enumValueStr{}, pkSerial{}, uuidMech{},
 		positionMech{}, versionIntMech{}, levelMech{}, yearMech{}, priorityMech{},
 		percentageMech{}, durationMech{}, fileSizeMech{}, counterMech{}, amountMech{},
 		portMech{}, statusCodeMech{},

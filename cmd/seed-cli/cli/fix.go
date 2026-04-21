@@ -193,7 +193,14 @@ func runFixFlow(cfg *config.Config, reg *registry.Registry, issue validate.Issue
 	}
 	switch issue.Fix.Kind {
 	case validate.KindUnresolved, validate.KindNoFactory:
+		if isJsonbColumn(cfg, issue.Fix.Table, issue.Fix.Column) {
+			return flowSetJsonShape(cfg, reg, issue)
+		}
 		return flowChooseFactory(cfg, reg, issue)
+	case validate.KindJsonFieldUnresolved:
+		return flowChooseJsonFieldFactory(cfg, reg, issue)
+	case validate.KindMissingFactoryParam:
+		return flowFactoryParam(cfg, reg, issue)
 	case validate.KindUnknownFactory:
 		return flowReplaceFactory(cfg, reg, issue)
 	case validate.KindValueTypeMismatch:
@@ -210,4 +217,17 @@ func runFixFlow(cfg *config.Config, reg *registry.Registry, issue validate.Issue
 		return flowUniqueFactory(cfg, reg, issue)
 	}
 	return fixUnfixable, nil
+}
+
+func isJsonbColumn(cfg *config.Config, tableKey, colName string) bool {
+	t, ok := cfg.Tables[tableKey]
+	if !ok {
+		return false
+	}
+	col, ok := t.Columns[colName]
+	if !ok {
+		return false
+	}
+	dt := strings.ToLower(col.DataType)
+	return dt == "json" || dt == "jsonb"
 }

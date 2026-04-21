@@ -38,6 +38,8 @@ const (
 	KindCheckNotApplied
 	KindExclude
 	KindPartialUnique
+	KindJsonFieldUnresolved
+	KindMissingFactoryParam
 )
 
 var kindNames = map[Kind]string{
@@ -58,6 +60,8 @@ var kindNames = map[Kind]string{
 	KindCheckNotApplied:     "check-not-applied",
 	KindExclude:             "exclude",
 	KindPartialUnique:       "partial-unique",
+	KindJsonFieldUnresolved: "json-field-unresolved",
+	KindMissingFactoryParam: "missing-factory-param",
 }
 
 func (k Kind) String() string {
@@ -84,5 +88,6 @@ type FixSpec struct {
 	Kind   Kind
 	Table  string
 	Column string
+	Field  string // non-empty for KindJsonFieldUnresolved: the json field name
 	Ctx    map[string]any
 }

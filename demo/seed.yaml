@@ -1,0 +1,54 @@
+version: 1
+database:
+    dialect: postgres
+    schemas: [public]
+defaults:
+    locale: en_US
+tables:
+    public.order_items:
+        row_count: 100
+        primary_key: [id]
+        columns:
+            id: {factory: pk_serial, data_type: integer}
+            order_id: {factory: fkref, params: {target: public.orders.id}, data_type: integer}
+            price: {factory: amount, data_type: numeric}
+            product_id: {factory: fkref, params: {target: public.products.id}, data_type: integer}
+            quantity: {factory: integer, data_type: integer}
+    public.orders:
+        row_count: 100
+        primary_key: [id]
+        columns:
+            created_at: {factory: timestamp, data_type: timestamp with time zone, nullable: true}
+            id: {factory: pk_serial, data_type: integer}
+            status: {factory: EnumValueStr, params: {values: [pending, active, cancelled]}, data_type: text}
+            total: {factory: decimal, data_type: numeric}
+            user_id: {factory: fkref, params: {target: public.users.id}, data_type: integer}
+    public.products:
+        row_count: 100
+        primary_key: [id]
+        unique_keys:
+            - [sku]
+        columns:
+            created_at: {factory: timestamp, data_type: timestamp with time zone, nullable: true}
+            id: {factory: pk_serial, data_type: integer}
+            name: {factory: string, data_type: text}
+            price: {factory: amount, data_type: numeric}
+            sku: {factory: string, data_type: text}
+    public.users:
+        row_count: 100
+        primary_key: [id]
+        unique_keys:
+            - [email]
+        columns:
+            created_at: {factory: timestamp, data_type: timestamp with time zone, nullable: true}
+            email: {factory: email, data_type: text}
+            first_name: {factory: first_name, data_type: text}
+            id: {factory: pk_serial, data_type: integer}
+            last_name: {factory: last_name, data_type: text}
+            metadata:
+                values:
+                    first_name: {factory: first_name, data_type: text}
+                    plan: {factory: EnumValueStr, params: {values: [free, pro, enterprise]}, data_type: text}
+                    score: {factory: decimal, data_type: numeric}
+                data_type: jsonb
+                nullable: true

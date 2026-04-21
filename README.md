@@ -8,6 +8,8 @@
 
 Generate **relationally consistent** synthetic data for PostgreSQL — reads your live schema and emits a ready-to-run SQL seed script. FK constraints, cycles, and row counts are all handled automatically.
 
+![demo](demo/demo.gif)
+
 ```
 $ seed-cli init --dsn postgres://localhost/myapp -o seed.yaml
 $ seed-cli generate -c seed.yaml -o seed.sql
@@ -107,6 +109,8 @@ Output ends with a summary `N error(s) · M warning(s) · K info` and a hint to 
 | `unresolved` | WARN | Inference produced a low-confidence match (score < WeakNameMatch). | Set `factory:` explicitly, or leave as-is if the fallback is acceptable. | ✓ |
 | `no-factory` | ERR | Column has no `factory:`, `value:`, or `values:` set. | Add `factory: <name>` or `value: <literal>`. | ✓ |
 | `unknown-factory` | ERR | `factory:` names an unregistered factory (typo or missing plugin). | Fix the name or wire the plugin via `--factories`. | ✓ |
+| `missing-factory-param` | WARN | The chosen factory declares a required parameter via `seedapi.Configurable` but it isn't set (e.g. `EnumValueStr` with no `params.values`). | Run `seed-cli fix` to enter the value — the cascade prompts for every required param in one session. | ✓ |
+| `json-field-unresolved` | WARN | A field inside a `values:` JSON shape has `unresolved: true` — no confident factory found. | Run `seed-cli fix` to pick a factory for that field. | ✓ |
 | `value-type-mismatch` | ERR | Literal in `value:` is incompatible with `data_type`. | Replace with a compatible literal or remove `value:`. | ✓ |
 | `fkref-missing-target` | ERR | `factory: fkref` but `params.target` is empty. | Add `params: { target: schema.table.column }`. | ✓ |
 | `fkref-target-not-found` | ERR | `target` points to a column/table not in the config. | Fix the path to a real PK column. | ✓ |
@@ -138,18 +142,221 @@ Note: saving re-orders columns alphabetically and drops comments, same as `sync`
 
 Example session:
 ```
-Found 6 fixable issue(s). Ctrl+C at any time — your edits are saved after each fix.
+Found 3 fixable issue(s). Ctrl+C at any time — your edits are saved after each fix.
 
-[1/6] WARN  public.customers.created_at  unresolved
-? Pick a factory:
-  > timestamp  (score 60)  [current]
-    enter value manually
-    keep as unresolved
-    skip for now
+[1/3] WARN  public.orders.status  factory EnumValueStr requires values
+? Allowed values (comma-separated):
+  > enter value
+    change factory instead
+? Allowed values (comma-separated): pending,active,cancelled
   ✓ applied
+
+[2/3] WARN  public.products.sku  unresolved
+? Pick a factory: skip for now
+  skipped
+
+[3/3] WARN  public.users.metadata  unresolved
+? Example JSON for public.users.metadata: {"plan":"pro","score":42,"first_name":"Alice"}
+
+  ✓ first_name        first_name
+  ? plan              string  (unresolved)
+  ✓ score             decimal
+
+? Factory for json field "plan": EnumValueStr  (score 70)
+? Allowed values (comma-separated):
+  > enter value
+    change factory instead
+? Allowed values (comma-separated): free,pro,enterprise
+  ✓ applied
+
+2 fixed · 1 skipped
 ```
 
+Whenever `fix` writes a `factory:`, it immediately asks the factory whether it needs further setup. Each required parameter is prompted in the same session, and the user can pick `change factory instead` at any step to swap the factory without leaving the cascade.
+
 After a session, run `seed-cli validate` to see only the remaining non-auto issues and anything you explicitly skipped.
+
+#### `EnumValueStr` — text columns with enum semantics
+
+Columns named `status`, `type`, `*_status`, or `*_type` (TEXT) are matched by `EnumValueStr`. The allowed values aren't derivable from the schema, so the factory declares `values` as a required param via `seedapi.Configurable`:
+
+```yaml
+status:
+  factory: EnumValueStr
+  params:
+    values: [pending, active, cancelled]
+  data_type: text
+```
+
+`fix` collects this list inline via the cascade — either as part of picking the factory, or when re-entering `fix` after `validate` has flagged `missing-factory-param`.
+
+#### JSONB shape inference
+
+For `jsonb` / `json` columns, `fix` asks for an example object (single line). It then infers a factory for each field by name and value type, prints the result, and **immediately prompts inline** for any fields it couldn't classify — no second pass required. The cascade runs on every picked factory, so a field that becomes `EnumValueStr` then asks for its `values` right there.
+
+```
+? Example JSON for public.users.metadata: {"plan":"pro","score":42,"first_name":"Alice"}
+
+  ✓ first_name        first_name
+  ? plan              string  (unresolved)
+  ✓ score             decimal
+
+? Factory for json field "plan": EnumValueStr  (score 70)
+? Allowed values (comma-separated): free,pro,enterprise
+```
+
+The resulting config:
+
+```yaml
+metadata:
+  data_type: jsonb
+  values:
+    first_name: { factory: first_name, data_type: text }
+    plan:        { factory: EnumValueStr, params: { values: [free, pro, enterprise] }, data_type: text }
+    score:       { factory: decimal, data_type: numeric }
+```
+
+Fields explicitly skipped during the inline prompt keep `unresolved: true` and appear in the next `validate` run as `json-field-unresolved`. Nesting is arbitrary: a field can have its own `values:` map for nested objects.
+
+#### Writing a `Configurable` factory
+
+If your factory needs parameters that only the user can supply, implement the optional `seedapi.Configurable` interface:
+
+```go
+type Configurable interface {
+    RequiredSetup(params map[string]any) []SetupStep
+}
+```
+
+`RequiredSetup` is called once in `validate` and repeatedly in `fix` (after every value the user enters). Return an empty slice when the factory is fully configured for the given params; return one or more `SetupStep`s describing what the CLI should prompt for.
+
+##### `SetupStep` fields
+
+| Field      | Meaning |
+|------------|---------|
+| `ParamKey` | Key under `col.Params` where the accepted value is written. The factory reads the same key in `Generate`. |
+| `Kind`     | Prompt type: `SetupString`, `SetupInt`, `SetupFloat`, `SetupBool`, `SetupList`. Determines both UI and the Go type stored in `col.Params`. |
+| `Element`  | Only for `SetupList`. Describes the element kind (one level deep). |
+| `Prompt`   | User-facing message. Short, actionable, e.g. `"Allowed values (comma-separated):"`. |
+| `Help`     | Optional help text shown when the user presses `?`. |
+| `Required` | `true` → no skip option; user must enter a value or change factory. `false` → `skip (use default)` is offered, and the factory must cope with the param being absent. |
+
+##### Stored value types per `SetupKind`
+
+| Kind          | `col.Params[ParamKey]` type     |
+|---------------|---------------------------------|
+| `SetupString` | `string` (TrimSpace'd)           |
+| `SetupInt`    | `int`                           |
+| `SetupFloat`  | `float64`                       |
+| `SetupBool`   | `bool`                          |
+| `SetupList`   | `[]any` where each element has the Go type produced by `Element.Kind` |
+
+##### Examples
+
+**One required param.** Mirrors the built-in `EnumValueStr`:
+
+```go
+func (myEnum) RequiredSetup(p map[string]any) []seedapi.SetupStep {
+    if v, ok := p["values"].([]any); ok && len(v) > 0 {
+        return nil
+    }
+    return []seedapi.SetupStep{{
+        ParamKey: "values",
+        Kind:     seedapi.SetupList,
+        Element:  &seedapi.SetupStep{Kind: seedapi.SetupString},
+        Prompt:   "Allowed values (comma-separated):",
+        Help:     "e.g. draft,published,archived",
+        Required: true,
+    }}
+}
+```
+
+**Optional param with a default.** Blank input stays absent; the factory picks the default at generation time:
+
+```go
+func (myBytea) RequiredSetup(p map[string]any) []seedapi.SetupStep {
+    if _, ok := p["size"].(int); ok {
+        return nil
+    }
+    return []seedapi.SetupStep{{
+        ParamKey: "size",
+        Kind:     seedapi.SetupInt,
+        Prompt:   "Byte size (blank = default 16):",
+        Required: false,
+    }}
+}
+```
+
+**Two required params, asked sequentially.** The cascade handles both in order and re-evaluates between them:
+
+```go
+func (myRange) RequiredSetup(p map[string]any) []seedapi.SetupStep {
+    var steps []seedapi.SetupStep
+    if _, ok := p["min"].(float64); !ok {
+        steps = append(steps, seedapi.SetupStep{
+            ParamKey: "min", Kind: seedapi.SetupFloat,
+            Prompt: "Min:", Required: true,
+        })
+    }
+    if _, ok := p["max"].(float64); !ok {
+        steps = append(steps, seedapi.SetupStep{
+            ParamKey: "max", Kind: seedapi.SetupFloat,
+            Prompt: "Max:", Required: true,
+        })
+    }
+    return steps
+}
+```
+
+**Branching on params.** First prompt gates the second; if the user fills `template`, the `values` path is never shown:
+
+```go
+func (myJson) RequiredSetup(p map[string]any) []seedapi.SetupStep {
+    if _, ok := p["template"].(string); ok {
+        return nil
+    }
+    if _, ok := p["values"].([]any); ok {
+        return nil
+    }
+    return []seedapi.SetupStep{{
+        ParamKey: "template",
+        Kind:     seedapi.SetupString,
+        Prompt:   "JSON template (blank to fall back to values list):",
+        Required: false,
+    }}
+}
+```
+
+**Complex types the CLI can't prompt directly.** Maps, nested arrays, or arbitrary JSON → take a raw string and parse it yourself:
+
+```go
+func (weightedEnum) RequiredSetup(p map[string]any) []seedapi.SetupStep {
+    if v, ok := p["slots"].(map[string]any); ok && len(v) > 0 {
+        return nil
+    }
+    return []seedapi.SetupStep{{
+        ParamKey: "slots",
+        Kind:     seedapi.SetupString, // parsed to map[string]int in Generate
+        Prompt:   "Slots as JSON object:",
+        Help:     `e.g. {"pending":1,"active":3,"cancelled":1}`,
+        Required: true,
+    }}
+}
+```
+
+##### Contract
+
+- `RequiredSetup` must be a pure function of `params`.
+- After the CLI writes `params[ParamKey]` with an accepted value, your next `RequiredSetup(params)` call must not return the same `ParamKey` again, otherwise the cascade would loop forever.
+- The CLI caps cascade iterations at 16 as a safety net — it's an emergency stop, not a contract. Buggy factories still get caught by validate downstream.
+
+##### Interaction with `fix`
+
+At every prompt the CLI offers three options (two when the step is required):
+
+1. **`enter value`** — collect the value per `Kind` and write into `col.Params[ParamKey]`.
+2. **`change factory instead`** — delegate back to the factory-picker. The cascade then restarts on the newly chosen factory. Previously stored params stay as-is; the new factory either uses them or ignores them.
+3. **`skip (use default)`** — only shown when `Required: false`. Leaves the param absent.
 
 ### Not auto-fixable
 
@@ -227,6 +434,7 @@ tables:
 | `uuid`        | `uuid`                       | Version 4 |
 | `fkref`       | any FK column                | `params.target: schema.table.column` |
 | `enum_value`  | PG `USER-DEFINED` enum       | Chooses uniformly from enum labels |
+| `EnumValueStr` | `status`, `type`, `*_status`, `*_type` (TEXT) | Text enum — set `params.values` or use `fix` |
 
 **People / contact**
 

@@ -71,6 +71,33 @@ func checkColumn(cfg *config.Config, tableKey, cname string, col *config.ColumnS
 		out = append(out, checkColumnFactory(loc, tableKey, cname, col, reg)...)
 	}
 
+	for fieldName, fieldSpec := range col.Values {
+		if fieldSpec == nil {
+			continue
+		}
+		fieldLoc := loc + "." + fieldName
+		if fieldSpec.Unresolved {
+			out = append(out, Issue{
+				Level:    LevelWarn,
+				Kind:     KindJsonFieldUnresolved,
+				Location: fieldLoc,
+				Message:  "json field unresolved",
+				Hint:     "pick a factory with `seed-cli fix` or set factory: manually",
+				Fix:      &FixSpec{Kind: KindJsonFieldUnresolved, Table: tableKey, Column: cname, Field: fieldName},
+			})
+			continue
+		}
+		if issue, ok := missingFactoryParamsIssue(reg, fieldSpec.Factory, fieldSpec.Params, fieldLoc, tableKey, cname, fieldName); ok {
+			out = append(out, issue)
+		}
+	}
+
+	if !col.Unresolved && col.Value == nil && len(col.Values) == 0 {
+		if issue, ok := missingFactoryParamsIssue(reg, col.Factory, col.Params, loc, tableKey, cname, ""); ok {
+			out = append(out, issue)
+		}
+	}
+
 	if col.Value != nil && col.DataType != "" {
 		if err := checkValueType(col.Value, col.DataType); err != nil {
 			out = append(out, Issue{
@@ -87,6 +114,47 @@ func checkColumn(cfg *config.Config, tableKey, cname string, col *config.ColumnS
 	}
 
 	return out
+}
+
+// missingFactoryParamsIssue returns a single aggregated Issue for all
+// unsatisfied required SetupSteps of a Configurable factory, or (_, false)
+// when the factory is unknown, not Configurable, or fully configured.
+// Emitting one Issue per column/field (instead of one per step) keeps the
+// `fix` UX coherent: one prompt session, one cascade.
+func missingFactoryParamsIssue(reg *registry.Registry, factory string, params map[string]any, loc, tableKey, cname, fieldName string) (Issue, bool) {
+	f, ok := reg.Get(factory)
+	if !ok {
+		return Issue{}, false
+	}
+	conf, ok := f.(seedapi.Configurable)
+	if !ok {
+		return Issue{}, false
+	}
+	var missing []string
+	for _, step := range conf.RequiredSetup(params) {
+		if !step.Required {
+			continue
+		}
+		missing = append(missing, step.ParamKey)
+	}
+	if len(missing) == 0 {
+		return Issue{}, false
+	}
+	ctxParams := append([]string(nil), missing...)
+	return Issue{
+		Level:    LevelWarn,
+		Kind:     KindMissingFactoryParam,
+		Location: loc,
+		Message:  fmt.Sprintf("factory %s requires %s", factory, strings.Join(missing, ", ")),
+		Hint:     "set the param(s) with `seed-cli fix` or add them to params manually",
+		Fix: &FixSpec{
+			Kind:   KindMissingFactoryParam,
+			Table:  tableKey,
+			Column: cname,
+			Field:  fieldName,
+			Ctx:    map[string]any{"params": ctxParams},
+		},
+	}, true
 }
 
 func checkColumnFactory(loc, tableKey, cname string, col *config.ColumnSpec, reg *registry.Registry) []Issue {

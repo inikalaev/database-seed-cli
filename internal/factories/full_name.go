@@ -12,7 +12,7 @@ func (fullName) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
 	if !isText(ctx.Column) {
 		return seedapi.NoMatch
 	}
-	if nameMatches(ctx.Column, `^full_?name$`, `^name$`, `^display_?name$`) {
+	if nameMatches(ctx.Column, `^full_?name$`, `^display_?name$`) {
 		return seedapi.StrongMatch
 	}
 	return seedapi.NoMatch

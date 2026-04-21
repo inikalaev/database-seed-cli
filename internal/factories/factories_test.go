@@ -111,3 +111,33 @@ func TestDecimalPrecisionClamp(t *testing.T) {
 		}
 	}
 }
+
+func TestEnumValueStrRequiredSetup(t *testing.T) {
+	f := enumValueStr{}
+	steps := f.RequiredSetup(nil)
+	if len(steps) != 1 {
+		t.Fatalf("empty params: want 1 step, got %d", len(steps))
+	}
+	if steps[0].ParamKey != "values" || steps[0].Kind != seedapi.SetupList {
+		t.Fatalf("step = %+v, want values/list", steps[0])
+	}
+	if steps[0].Element == nil || steps[0].Element.Kind != seedapi.SetupString {
+		t.Fatalf("element kind = %+v, want string", steps[0].Element)
+	}
+	if got := f.RequiredSetup(map[string]any{"values": []any{"a", "b"}}); got != nil {
+		t.Fatalf("filled params: want nil, got %v", got)
+	}
+	if got := f.RequiredSetup(map[string]any{"values": []any{}}); len(got) != 1 {
+		t.Fatalf("empty list: want 1 step, got %d", len(got))
+	}
+}
+
+func TestEnumValueRequiredSetup(t *testing.T) {
+	f := enumValue{}
+	if got := f.RequiredSetup(nil); len(got) != 1 || got[0].ParamKey != "values" {
+		t.Fatalf("empty params: want 1 step on values, got %+v", got)
+	}
+	if got := f.RequiredSetup(map[string]any{"values": []any{"a"}}); got != nil {
+		t.Fatalf("filled params: want nil, got %v", got)
+	}
+}
