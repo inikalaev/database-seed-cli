@@ -381,14 +381,14 @@ func TestEmitJSONValues(t *testing.T) {
 				Columns: map[string]*config.ColumnSpec{
 					"id": {Factory: "pk_serial", DataType: "integer"},
 					"meta": {
-						Factory: "json_any",
-						DataType:  "jsonb",
+						Factory:  "json_any",
+						DataType: "jsonb",
 						Values: map[string]*config.ColumnSpec{
 							"name":  {Factory: "first_name", DataType: "text"},
 							"score": {Factory: "integer", DataType: "integer", Params: map[string]any{"min": 1, "max": 100}},
 							"addr": {
-								Factory: "json_any",
-								DataType:  "jsonb",
+								Factory:  "json_any",
+								DataType: "jsonb",
 								Values: map[string]*config.ColumnSpec{
 									"city": {Factory: "city", DataType: "text"},
 								},

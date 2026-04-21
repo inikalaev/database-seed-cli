@@ -8,8 +8,10 @@ import (
 
 type titleMech struct{}
 
-func (titleMech) Name() string   { return "title" }
-func (titleMech) Tags() []string { return []string{"title", "headline", "heading", "caption", "subject"} }
+func (titleMech) Name() string { return "title" }
+func (titleMech) Tags() []string {
+	return []string{"title", "headline", "heading", "caption", "subject"}
+}
 
 func (titleMech) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
 	return textNameMatch(ctx.Column, "title", titleMech{}.Tags())

@@ -8,9 +8,9 @@ import (
 
 type hostnameMech struct{}
 
-func (hostnameMech) Name() string         { return "hostname" }
-func (hostnameMech) UniquePerRow() bool   { return true }
-func (hostnameMech) Tags() []string { return []string{"hostname", "domain", "subdomain", "host"} }
+func (hostnameMech) Name() string       { return "hostname" }
+func (hostnameMech) UniquePerRow() bool { return true }
+func (hostnameMech) Tags() []string     { return []string{"hostname", "domain", "subdomain", "host"} }
 
 func (hostnameMech) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
 	return textNameMatch(ctx.Column, "hostname", hostnameMech{}.Tags())

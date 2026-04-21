@@ -58,13 +58,13 @@ func mergeTable(existing, incoming *Table) *Table {
 		return incoming
 	}
 	out := &Table{
-		Schema:      incoming.Schema,
-		Name:        incoming.Name,
-		RowCount:    pickIntPtr(existing.RowCount, incoming.RowCount),
-		RowCountPer: pickRowCountPer(existing.RowCountPer, incoming.RowCountPer),
-		Tags:        pickStrings(existing.Tags, incoming.Tags),
-		Removed:     false,
-		Columns:     map[string]*ColumnSpec{},
+		Schema:            incoming.Schema,
+		Name:              incoming.Name,
+		RowCount:          pickIntPtr(existing.RowCount, incoming.RowCount),
+		RowCountPer:       pickRowCountPer(existing.RowCountPer, incoming.RowCountPer),
+		Tags:              pickStrings(existing.Tags, incoming.Tags),
+		Removed:           false,
+		Columns:           map[string]*ColumnSpec{},
 		ColumnOrder:       incoming.ColumnOrder,
 		PrimaryKey:        incoming.PrimaryKey,        // schema-derived, always refresh from incoming
 		UniqueKeys:        incoming.UniqueKeys,        // schema-derived, always refresh from incoming

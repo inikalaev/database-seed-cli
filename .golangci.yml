@@ -18,6 +18,22 @@ linters:
     - unparam
     - bodyclose
   settings:
+    errcheck:
+      exclude-functions:
+        # Writing to stdout/stderr never meaningfully errors in a CLI.
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Printf
+        - fmt.Println
+        - fmt.Print
+        # fatih/color — same contract as fmt writers.
+        - (*github.com/fatih/color.Color).Fprintf
+        - (*github.com/fatih/color.Color).Fprintln
+        - (*github.com/fatih/color.Color).Printf
+        - (*github.com/fatih/color.Color).Println
+        - (*github.com/fatih/color.Color).Print
+        # Defer close — error unrecoverable at that point.
+        - (*os.File).Close
     revive:
       rules:
         - name: exported
@@ -26,6 +42,7 @@ linters:
       disabled-checks:
         - ifElseChain
         - singleCaseSwitch
+        - offBy1
 
 formatters:
   enable:

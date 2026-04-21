@@ -152,9 +152,9 @@ type UniqueGenerator interface {
 
 // Registry collects mechanisms discovered at init() time.
 type Registry struct {
-	mu       sync.RWMutex
-	byName   map[string]Factory
-	ordered  []Factory
+	mu      sync.RWMutex
+	byName  map[string]Factory
+	ordered []Factory
 }
 
 var global = &Registry{byName: map[string]Factory{}}

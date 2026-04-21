@@ -33,8 +33,8 @@ type Table struct {
 	Name   string `yaml:"-"`
 	// RowCount is a pointer so "row_count: 0" (do not generate) is distinct from
 	// "unset" (fall back to default). Merge preserves whichever side has a value.
-	RowCount    *int              `yaml:"row_count,omitempty"`
-	RowCountPer map[string][2]int `yaml:"row_count_per,omitempty"`
+	RowCount    *int                   `yaml:"row_count,omitempty"`
+	RowCountPer map[string][2]int      `yaml:"row_count_per,omitempty"`
 	Tags        []string               `yaml:"tags,omitempty"`
 	Removed     bool                   `yaml:"removed,omitempty"`
 	Columns     map[string]*ColumnSpec `yaml:"columns"`
@@ -73,8 +73,8 @@ type Table struct {
 }
 
 type PolymorphicKey struct {
-	TypeColumn string             `yaml:"type_column"`
-	IdColumn   string             `yaml:"id_column"`
+	TypeColumn string               `yaml:"type_column"`
+	IdColumn   string               `yaml:"id_column"`
 	Candidates []PolymorphCandidate `yaml:"candidates,omitempty"`
 }
 
@@ -109,11 +109,11 @@ type ExcludeConstraint struct {
 }
 
 type ColumnSpec struct {
-	Factory    string                 `yaml:"factory,omitempty"`
+	Factory string `yaml:"factory,omitempty"`
 	// Value, when set, is emitted verbatim for every row — factory is ignored.
 	// Accepts any scalar YAML type: string, int, float, bool.
-	Value      any                    `yaml:"value,omitempty"`
-	Params     map[string]any         `yaml:"params,omitempty"`
+	Value  any            `yaml:"value,omitempty"`
+	Params map[string]any `yaml:"params,omitempty"`
 	// Values defines the shape of a JSON/JSONB column as a map of field name →
 	// nested ColumnSpec. When set, the emitter builds a JSON object from this
 	// shape instead of calling the mechanism's Generate. Nested Values are

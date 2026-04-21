@@ -22,9 +22,9 @@ import (
 )
 
 type Options struct {
-	Locale     string
-	Seed       int64
-	BatchSize  int
+	Locale    string
+	Seed      int64
+	BatchSize int
 }
 
 type Emitter struct {
@@ -418,7 +418,7 @@ func formatSQL(v any) string {
 	}
 }
 
-// quoteString escapes a Go string into a PG string literal. The E'' prefix
+// quoteString escapes a Go string into a PG string literal. The E” prefix
 // forces C-style escape semantics, guaranteeing correct handling of
 // backslashes regardless of the session's standard_conforming_strings setting.
 // All ASCII control characters are escaped as \xNN so psql and common

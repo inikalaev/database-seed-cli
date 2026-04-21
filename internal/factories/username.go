@@ -8,9 +8,9 @@ import (
 
 type usernameMech struct{}
 
-func (usernameMech) Name() string         { return "username" }
-func (usernameMech) UniquePerRow() bool   { return true }
-func (usernameMech) Tags() []string { return []string{"username", "user_name", "login", "login_name"} }
+func (usernameMech) Name() string       { return "username" }
+func (usernameMech) UniquePerRow() bool { return true }
+func (usernameMech) Tags() []string     { return []string{"username", "user_name", "login", "login_name"} }
 
 func (usernameMech) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
 	return textNameMatch(ctx.Column, "username", usernameMech{}.Tags())

@@ -101,7 +101,7 @@ func classifyTableName(name string) string {
 	}
 	joined := strings.Join(parts, "")
 	// Trivial pluralization: drop trailing "s" if the name is longer than 1
-	// char. Cases like "addresses"/"addres" are wrong on purpose — this is a
+	// char. Edge cases (e.g. "addresses" → "addresse") are expected — this is a
 	// starting point, not a complete inflector.
 	if strings.HasSuffix(joined, "s") && len(joined) > 1 {
 		joined = joined[:len(joined)-1]

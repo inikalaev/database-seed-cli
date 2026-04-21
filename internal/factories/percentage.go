@@ -4,8 +4,10 @@ import "github.com/inikalaev/database-seed-cli/pkg/seedapi"
 
 type percentageMech struct{}
 
-func (percentageMech) Name() string   { return "percentage" }
-func (percentageMech) Tags() []string { return []string{"score", "percent", "progress", "rating", "grade"} }
+func (percentageMech) Name() string { return "percentage" }
+func (percentageMech) Tags() []string {
+	return []string{"score", "percent", "progress", "rating", "grade"}
+}
 
 func (percentageMech) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
 	if !isInt(ctx.Column) {

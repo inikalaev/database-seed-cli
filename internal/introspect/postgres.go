@@ -21,7 +21,7 @@ func (p *Postgres) Introspect(ctx context.Context, opts Options) (*schema.Model,
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer conn.Close(ctx) //nolint:errcheck
 
 	schemas, err := p.resolveSchemas(ctx, conn, opts)
 	if err != nil {
@@ -151,7 +151,7 @@ func (p *Postgres) loadColumns(ctx context.Context, conn *pgx.Conn, schemas []st
 	for rows.Next() {
 		var (
 			sName, tName, cName, dataType, udt, udtSchema string
-			pos                                            int
+			pos                                           int
 			nullable, isGen, isIdent                      bool
 			def                                           *string
 			charMax, numPrec, numScale                    *int

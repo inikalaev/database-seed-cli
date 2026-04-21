@@ -4,8 +4,10 @@ import "github.com/inikalaev/database-seed-cli/pkg/seedapi"
 
 type companyMech struct{}
 
-func (companyMech) Name() string   { return "company" }
-func (companyMech) Tags() []string { return []string{"organisation", "organization", "employer", "company_name"} }
+func (companyMech) Name() string { return "company" }
+func (companyMech) Tags() []string {
+	return []string{"organisation", "organization", "employer", "company_name"}
+}
 
 func (companyMech) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
 	return textNameMatch(ctx.Column, "company", companyMech{}.Tags())

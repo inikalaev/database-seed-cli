@@ -57,7 +57,7 @@ func Apply(ctx context.Context, db *sql.DB, cfg *Config) error {
 }
 
 // splitStatements splits a SQL script into individual semicolon-terminated
-// statements. Handles single-quoted string literals (including '' escapes) and
+// statements. Handles single-quoted string literals (including ” escapes) and
 // skips -- line comments so semicolons inside comments are not treated as
 // statement terminators.
 func splitStatements(sql string) []string {
@@ -95,4 +95,3 @@ func splitStatements(sql string) []string {
 	}
 	return out
 }
-

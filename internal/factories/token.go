@@ -8,8 +8,10 @@ import (
 
 type tokenMech struct{}
 
-func (tokenMech) Name() string   { return "token" }
-func (tokenMech) Tags() []string { return []string{"token", "api_key", "secret", "access_token", "auth_token"} }
+func (tokenMech) Name() string { return "token" }
+func (tokenMech) Tags() []string {
+	return []string{"token", "api_key", "secret", "access_token", "auth_token"}
+}
 
 func (tokenMech) Match(ctx seedapi.MatchContext) seedapi.MatchScore {
 	return textNameMatch(ctx.Column, "token", tokenMech{}.Tags())

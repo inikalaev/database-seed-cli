@@ -20,7 +20,7 @@ type Options struct {
 	Schemas    []string
 	SchemaAll  bool
 	// Only keeps only the listed tables. Accepts "table" or "schema.table".
-	Only    []string
+	Only []string
 	// Exclude removes the listed tables. Accepts "table" or "schema.table".
 	Exclude []string
 }
