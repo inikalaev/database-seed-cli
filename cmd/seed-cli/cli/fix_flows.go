@@ -18,21 +18,42 @@ import (
 // Common sentinel option labels. Kept as constants so each flow reads the same
 // wording and we can spot user-visible strings in one place.
 const (
-	optSkip        = "skip for now"
-	optManualEntry = "enter value manually"
-	optKeepAsIs    = "keep as-is"
+	optSkip             = "skip for now"
+	optManualEntry      = "enter value manually"
+	optKeepAsIs         = "keep as-is"
+	optKeepAsUnresolved = "keep as unresolved"
 )
 
-// flowChooseFactory covers both KindUnresolved (low-confidence inference) and
-// KindNoFactory (no factory at all). Both resolve the same way — pick a factory
-// and clear Unresolved.
-func flowChooseFactory(cfg *config.Config, reg *registry.Registry, issue validate.Issue) (fixResult, error) {
-	col, err := lookupColumn(cfg, issue.Fix.Table, issue.Fix.Column)
-	if err != nil {
-		return fixSkipped, err
-	}
+// factoryPickResult classifies the outcome of promptFactoryPick so callers
+// can decide between fixApplied, fixSkipped, break-out-of-loop, etc.
+type factoryPickResult int
 
-	apiCol := buildAPIColumn(cfg, issue.Fix.Table, issue.Fix.Column)
+const (
+	factoryPickApplied factoryPickResult = iota
+	factoryPickSkipped
+	factoryPickKeptUnresolved
+	factoryPickAborted
+)
+
+// factoryPickOpts tunes promptFactoryPick for its three call sites:
+// column-level pick (allows "keep as unresolved"), json field pick, and
+// inline json-shape pick.
+type factoryPickOpts struct {
+	message             string
+	allowKeepUnresolved bool
+}
+
+// promptFactoryPick is the unified factory-selection UX: rank factories for
+// apiCol, show the top matches plus "enter value manually"/"skip"/(optional)
+// "keep as unresolved", then either cascade the picked factory's required
+// setup or flag the column as unresolved. Mutates spec.Factory and
+// spec.Unresolved directly.
+//
+// Returns factoryPickAborted on survey error (Ctrl+C) so callers inside a
+// loop can break without leaking the error further — matches the previous
+// behaviour of flowSetJsonShape where interrupting one subfield keeps the
+// shape we already built.
+func promptFactoryPick(cfg *config.Config, reg *registry.Registry, tableKey, colName string, spec *config.ColumnSpec, apiCol seedapi.Column, opts factoryPickOpts) (factoryPickResult, error) {
 	ranked := rankFactories(reg, apiCol)
 	top := ranked
 	if len(top) > 8 {
@@ -43,48 +64,72 @@ func flowChooseFactory(cfg *config.Config, reg *registry.Registry, issue validat
 	labelToName := map[string]string{}
 	for _, rf := range top {
 		label := fmt.Sprintf("%s  (score %d)", rf.name, rf.score)
-		if rf.name == col.Factory {
+		if rf.name == spec.Factory {
 			label += "  [current]"
 		}
 		options = append(options, label)
 		labelToName[label] = rf.name
 	}
-	options = append(options, optManualEntry, "keep as unresolved", optSkip)
+	options = append(options, optManualEntry)
+	if opts.allowKeepUnresolved {
+		options = append(options, optKeepAsUnresolved)
+	}
+	options = append(options, optSkip)
 
 	var choice string
 	if err := survey.AskOne(&survey.Select{
-		Message: "Pick a factory:",
+		Message: opts.message,
 		Options: options,
 		Default: options[0],
 	}, &choice); err != nil {
-		return fixSkipped, err
+		return factoryPickAborted, err
 	}
 
 	switch choice {
 	case optSkip:
-		return fixSkipped, nil
-	case "keep as unresolved":
-		col.Unresolved = true
-		return fixSkipped, nil
+		return factoryPickSkipped, nil
+	case optKeepAsUnresolved:
+		spec.Unresolved = true
+		return factoryPickKeptUnresolved, nil
 	case optManualEntry:
 		var name string
 		if err := survey.AskOne(&survey.Input{Message: "Factory name:"}, &name,
 			survey.WithValidator(survey.Required)); err != nil {
-			return fixSkipped, err
+			return factoryPickAborted, err
 		}
-		col.Factory = strings.TrimSpace(name)
-		col.Unresolved = false
-		if err := cascadeFactorySetup(cfg, reg, issue.Fix.Table, issue.Fix.Column, col); err != nil {
-			return fixSkipped, err
-		}
-		return fixApplied, nil
+		spec.Factory = strings.TrimSpace(name)
+		spec.Unresolved = false
+	default:
+		spec.Factory = labelToName[choice]
+		spec.Unresolved = false
 	}
-	col.Factory = labelToName[choice]
-	col.Unresolved = false
-	if err := cascadeFactorySetup(cfg, reg, issue.Fix.Table, issue.Fix.Column, col); err != nil {
+	if err := cascadeFactorySetup(cfg, reg, tableKey, colName, spec); err != nil {
+		return factoryPickAborted, err
+	}
+	return factoryPickApplied, nil
+}
+
+// flowChooseFactory covers both KindUnresolved (low-confidence inference) and
+// KindNoFactory (no factory at all). Both resolve the same way — pick a factory
+// and clear Unresolved.
+func flowChooseFactory(cfg *config.Config, reg *registry.Registry, issue validate.Issue) (fixResult, error) {
+	col, err := lookupColumn(cfg, issue.Fix.Table, issue.Fix.Column)
+	if err != nil {
 		return fixSkipped, err
 	}
-	return fixApplied, nil
+	apiCol := buildAPIColumn(cfg, issue.Fix.Table, issue.Fix.Column)
+	res, err := promptFactoryPick(cfg, reg, issue.Fix.Table, issue.Fix.Column, col, apiCol, factoryPickOpts{
+		message:             "Pick a factory:",
+		allowKeepUnresolved: true,
+	})
+	switch res {
+	case factoryPickApplied:
+		return fixApplied, nil
+	case factoryPickAborted:
+		return fixSkipped, err
+	default:
+		return fixSkipped, nil
+	}
 }
 
 // flowReplaceFactory handles KindUnknownFactory: the current factory name is
@@ -476,6 +521,32 @@ func lookupTable(cfg *config.Config, tableKey string) (*config.Table, error) {
 	return t, nil
 }
 
+// lookupJsonField walks a dot-separated path inside col.Values and returns
+// the nested ColumnSpec. Used by every json-field fix flow so subfields at
+// arbitrary depth share the same addressing scheme.
+//
+// Returns (nil, false) when any segment is missing or nil — callers should
+// treat that as "skip the fix", not a fatal error, because config/validate
+// state can drift between the Check and Fix passes.
+func lookupJsonField(col *config.ColumnSpec, path string) (*config.ColumnSpec, bool) {
+	if path == "" || col == nil {
+		return nil, false
+	}
+	segments := strings.Split(path, ".")
+	cur := col
+	for _, seg := range segments {
+		if cur == nil || cur.Values == nil {
+			return nil, false
+		}
+		next, ok := cur.Values[seg]
+		if !ok || next == nil {
+			return nil, false
+		}
+		cur = next
+	}
+	return cur, true
+}
+
 // scanPKTargets enumerates every column that looks like a primary key, formatted
 // as "schema.table.column". Used by flowFKTarget to offer valid FK targets.
 func scanPKTargets(cfg *config.Config) []string {
@@ -726,10 +797,10 @@ func flowFactoryParam(cfg *config.Config, reg *registry.Registry, issue validate
 	if err != nil {
 		return fixSkipped, err
 	}
-	// JSON subfield: cascade on the field spec, not the column spec.
+	// JSON subfield: cascade on the nested spec, not the column spec.
 	if issue.Fix.Field != "" {
-		fieldSpec, ok := col.Values[issue.Fix.Field]
-		if !ok || fieldSpec == nil {
+		fieldSpec, ok := lookupJsonField(col, issue.Fix.Field)
+		if !ok {
 			return fixSkipped, fmt.Errorf("json field %q not found", issue.Fix.Field)
 		}
 		factoryBefore := fieldSpec.Factory
@@ -828,61 +899,18 @@ func flowSetJsonShape(cfg *config.Config, reg *registry.Registry, issue validate
 	col.Unresolved = false
 
 	// For each unresolved field, prompt inline — no need for a second fix pass.
-subfieldLoop:
 	for _, k := range keys {
 		spec := values[k]
 		if !spec.Unresolved {
 			continue
 		}
-		syntheticCol := seedapi.Column{Name: k, DataType: spec.DataType}
-		ranked := rankFactories(reg, syntheticCol)
-		top := ranked
-		if len(top) > 8 {
-			top = top[:8]
-		}
-
-		options := make([]string, 0, len(top)+2)
-		labelToName := map[string]string{}
-		for _, rf := range top {
-			label := fmt.Sprintf("%s  (score %d)", rf.name, rf.score)
-			if rf.name == spec.Factory {
-				label += "  [current]"
-			}
-			options = append(options, label)
-			labelToName[label] = rf.name
-		}
-		options = append(options, optManualEntry, optSkip)
-
-		var choice string
-		if err := survey.AskOne(&survey.Select{
-			Message: fmt.Sprintf("Factory for json field %q:", k),
-			Options: options,
-			Default: options[0],
-		}, &choice); err != nil {
-			// Stop touching remaining fields but keep the shape we built.
-			break subfieldLoop
-		}
-
-		switch choice {
-		case optSkip:
-			// leave as unresolved — will appear in next validate
-		case optManualEntry:
-			var name string
-			if err := survey.AskOne(&survey.Input{Message: "Factory name:"}, &name,
-				survey.WithValidator(survey.Required)); err != nil {
-				break subfieldLoop
-			}
-			spec.Factory = strings.TrimSpace(name)
-			spec.Unresolved = false
-			if err := cascadeFactorySetup(cfg, reg, issue.Fix.Table, issue.Fix.Column, spec); err != nil {
-				break subfieldLoop
-			}
-		default:
-			spec.Factory = labelToName[choice]
-			spec.Unresolved = false
-			if err := cascadeFactorySetup(cfg, reg, issue.Fix.Table, issue.Fix.Column, spec); err != nil {
-				break subfieldLoop
-			}
+		apiCol := seedapi.Column{Name: k, DataType: spec.DataType}
+		res, _ := promptFactoryPick(cfg, reg, issue.Fix.Table, issue.Fix.Column, spec, apiCol, factoryPickOpts{
+			message: fmt.Sprintf("Factory for json field %q:", k),
+		})
+		if res == factoryPickAborted {
+			// Stop touching remaining fields but keep the shape we already built.
+			break
 		}
 	}
 
@@ -896,61 +924,28 @@ func flowChooseJsonFieldFactory(cfg *config.Config, reg *registry.Registry, issu
 	if err != nil {
 		return fixSkipped, err
 	}
-	fieldSpec, ok := col.Values[issue.Fix.Field]
+	fieldSpec, ok := lookupJsonField(col, issue.Fix.Field)
 	if !ok {
 		return fixSkipped, fmt.Errorf("json field %q not found in %s.%s", issue.Fix.Field, issue.Fix.Table, issue.Fix.Column)
 	}
-
-	syntheticCol := seedapi.Column{Name: issue.Fix.Field, DataType: fieldSpec.DataType}
-	ranked := rankFactories(reg, syntheticCol)
-	top := ranked
-	if len(top) > 8 {
-		top = top[:8]
+	// apiCol uses the leaf field name (last path segment) so factory matchers
+	// score against the actual key, not the dotted parent path.
+	leafName := issue.Fix.Field
+	if idx := strings.LastIndex(leafName, "."); idx >= 0 {
+		leafName = leafName[idx+1:]
 	}
-
-	options := make([]string, 0, len(top)+2)
-	labelToName := map[string]string{}
-	for _, rf := range top {
-		label := fmt.Sprintf("%s  (score %d)", rf.name, rf.score)
-		if rf.name == fieldSpec.Factory {
-			label += "  [current]"
-		}
-		options = append(options, label)
-		labelToName[label] = rf.name
-	}
-	options = append(options, optManualEntry, optSkip)
-
-	var choice string
-	if err := survey.AskOne(&survey.Select{
-		Message: fmt.Sprintf("Factory for json field %q:", issue.Fix.Field),
-		Options: options,
-		Default: options[0],
-	}, &choice); err != nil {
-		return fixSkipped, err
-	}
-
-	switch choice {
-	case optSkip:
-		return fixSkipped, nil
-	case optManualEntry:
-		var name string
-		if err := survey.AskOne(&survey.Input{Message: "Factory name:"}, &name,
-			survey.WithValidator(survey.Required)); err != nil {
-			return fixSkipped, err
-		}
-		fieldSpec.Factory = strings.TrimSpace(name)
-		fieldSpec.Unresolved = false
-		if err := cascadeFactorySetup(cfg, reg, issue.Fix.Table, issue.Fix.Column, fieldSpec); err != nil {
-			return fixSkipped, err
-		}
+	apiCol := seedapi.Column{Name: leafName, DataType: fieldSpec.DataType}
+	res, err := promptFactoryPick(cfg, reg, issue.Fix.Table, issue.Fix.Column, fieldSpec, apiCol, factoryPickOpts{
+		message: fmt.Sprintf("Factory for json field %q:", issue.Fix.Field),
+	})
+	switch res {
+	case factoryPickApplied:
 		return fixApplied, nil
-	}
-	fieldSpec.Factory = labelToName[choice]
-	fieldSpec.Unresolved = false
-	if err := cascadeFactorySetup(cfg, reg, issue.Fix.Table, issue.Fix.Column, fieldSpec); err != nil {
+	case factoryPickAborted:
 		return fixSkipped, err
+	default:
+		return fixSkipped, nil
 	}
-	return fixApplied, nil
 }
 
 // jsonValueDataType maps a Go value decoded from JSON to a PostgreSQL-style

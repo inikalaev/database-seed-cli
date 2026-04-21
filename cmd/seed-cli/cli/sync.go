@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/inikalaev/database-seed-cli/internal/config"
+	"github.com/inikalaev/database-seed-cli/internal/configbuild"
 	"github.com/inikalaev/database-seed-cli/internal/introspect"
 	"github.com/inikalaev/database-seed-cli/internal/registry"
 	"github.com/spf13/cobra"
@@ -51,7 +52,7 @@ func newSyncCmd() *cobra.Command {
 				return err
 			}
 			reg := registry.Default()
-			incoming := config.FromModel(model, reg, existing.Defaults)
+			incoming := configbuild.FromModel(model, reg, existing.Defaults)
 			// Pull out-of-scope tables aside so Merge doesn't flag them
 			// `removed: true` just because --only/--exclude hid them from this
 			// sync. They rejoin the merged config unchanged. A scoped copy

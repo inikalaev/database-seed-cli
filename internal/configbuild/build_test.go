@@ -1,8 +1,9 @@
-package config
+package configbuild
 
 import (
 	"testing"
 
+	"github.com/inikalaev/database-seed-cli/internal/config"
 	"github.com/inikalaev/database-seed-cli/internal/factories"
 	"github.com/inikalaev/database-seed-cli/internal/registry"
 	"github.com/inikalaev/database-seed-cli/internal/schema"
@@ -33,7 +34,7 @@ func TestFromModelEnumColumn(t *testing.T) {
 		},
 	}
 	reg := registry.New(factories.All())
-	cfg := FromModel(m, reg, DefaultsSection{})
+	cfg := FromModel(m, reg, config.DefaultsSection{})
 
 	tbl := cfg.Tables["public.orders"]
 	if tbl == nil {
@@ -66,7 +67,7 @@ func TestFromModelDefaultRowCount(t *testing.T) {
 		},
 	}
 	reg := registry.New(factories.All())
-	cfg := FromModel(m, reg, DefaultsSection{})
+	cfg := FromModel(m, reg, config.DefaultsSection{})
 	tbl := cfg.Tables["public.items"]
 	if tbl == nil {
 		t.Fatal("public.items not found")

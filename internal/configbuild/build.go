@@ -1,28 +1,36 @@
-package config
+// Package configbuild builds a fresh config.Config from an introspected schema.
+//
+// It lives outside package config so that `config` can remain a pure types +
+// I/O layer. Wrappers (Go/Ruby/Python) and any code that just reads or merges
+// a config pay no cost for the inference machinery (registry + factories).
+// Only the CLI's init/sync commands — which already need registry — import
+// this package.
+package configbuild
 
 import (
+	"github.com/inikalaev/database-seed-cli/internal/config"
 	"github.com/inikalaev/database-seed-cli/internal/registry"
 	"github.com/inikalaev/database-seed-cli/internal/schema"
 )
 
 const defaultRowCount = 100
 
-// FromModel builds a fresh Config from an introspected schema model using the
-// inference registry. Every column gets an Origin="inferred" spec; Unresolved
-// is set when the registry could not find a strong match.
-func FromModel(model *schema.Model, reg *registry.Registry, defaults DefaultsSection) *Config {
-	cfg := &Config{
-		Version:  CurrentVersion,
-		Database: DatabaseSection{Dialect: model.Dialect, Schemas: model.Schemas},
+// FromModel builds a fresh config.Config from an introspected schema model
+// using the inference registry. Every column gets an inferred spec; Unresolved
+// is set when the registry could not find a confident match.
+func FromModel(model *schema.Model, reg *registry.Registry, defaults config.DefaultsSection) *config.Config {
+	cfg := &config.Config{
+		Version:  config.CurrentVersion,
+		Database: config.DatabaseSection{Dialect: model.Dialect, Schemas: model.Schemas},
 		Defaults: defaults,
-		Tables:   map[string]*Table{},
+		Tables:   map[string]*config.Table{},
 	}
 	enumValues := map[string][]string{}
 	for _, e := range model.Enums {
 		enumValues[e.Schema+"."+e.Name] = e.Values
 	}
 	for _, tbl := range model.Tables {
-		key := QualifiedKey(tbl.Schema, tbl.Name)
+		key := config.QualifiedKey(tbl.Schema, tbl.Name)
 		rc := defaultRowCount
 		// Trigger-populated tables fill themselves as a side effect of their
 		// source tables' INSERTs, so emitting rows independently would
@@ -42,38 +50,38 @@ func FromModel(model *schema.Model, reg *registry.Registry, defaults DefaultsSec
 		for i, uk := range tbl.UniqueKeys {
 			uks[i] = append([]string(nil), uk...)
 		}
-		puks := make([]PartialUniqueKey, len(tbl.PartialUniqueKeys))
+		puks := make([]config.PartialUniqueKey, len(tbl.PartialUniqueKeys))
 		for i, p := range tbl.PartialUniqueKeys {
-			puks[i] = PartialUniqueKey{
+			puks[i] = config.PartialUniqueKey{
 				Columns:   append([]string(nil), p.Columns...),
 				Predicate: p.Predicate,
 			}
 		}
-		checks := make([]CheckConstraint, len(tbl.CheckConstraints))
+		checks := make([]config.CheckConstraint, len(tbl.CheckConstraints))
 		for i, c := range tbl.CheckConstraints {
-			checks[i] = CheckConstraint{
+			checks[i] = config.CheckConstraint{
 				Name:       c.Name,
 				Expression: c.Expression,
 				Columns:    append([]string(nil), c.Columns...),
 			}
 		}
-		excludes := make([]ExcludeConstraint, len(tbl.ExcludeConstraints))
+		excludes := make([]config.ExcludeConstraint, len(tbl.ExcludeConstraints))
 		for i, e := range tbl.ExcludeConstraints {
-			excludes[i] = ExcludeConstraint{
+			excludes[i] = config.ExcludeConstraint{
 				Name:       e.Name,
 				Definition: e.Definition,
 				Columns:    append([]string(nil), e.Columns...),
 			}
 		}
-		polys := make([]PolymorphicKey, len(tbl.Polymorphs))
+		polys := make([]config.PolymorphicKey, len(tbl.Polymorphs))
 		for i, p := range tbl.Polymorphs {
-			polys[i] = PolymorphicKey{TypeColumn: p.TypeColumn, IdColumn: p.IdColumn}
+			polys[i] = config.PolymorphicKey{TypeColumn: p.TypeColumn, IdColumn: p.IdColumn}
 		}
-		ct := &Table{
+		ct := &config.Table{
 			Schema:            tbl.Schema,
 			Name:              tbl.Name,
 			RowCount:          &rc,
-			Columns:           map[string]*ColumnSpec{},
+			Columns:           map[string]*config.ColumnSpec{},
 			ColumnOrder:       columnOrder(tbl),
 			PrimaryKey:        append([]string(nil), tbl.PrimaryKey...),
 			UniqueKeys:        uks,
@@ -91,7 +99,7 @@ func FromModel(model *schema.Model, reg *registry.Registry, defaults DefaultsSec
 			}
 			apiCol := registry.ToAPIColumn(tbl, col, enumValues[col.EnumName], fkByCol[col.Name])
 			res := reg.Infer(apiCol, defaults.Locale)
-			spec := &ColumnSpec{
+			spec := &config.ColumnSpec{
 				Nullable: col.Nullable,
 				DataType: col.DataType,
 			}
@@ -148,7 +156,7 @@ func FromModel(model *schema.Model, reg *registry.Registry, defaults DefaultsSec
 		// Apply parseable CHECK constraints as column-level params (min/max/
 		// max_len/values). Unrecognized checks stay in Table.Checks for validate
 		// to surface.
-		recognized := applyCheckConstraints(ct)
+		recognized := config.ApplyCheckConstraints(ct)
 		// Any multi-column CHECK we can't parse expresses a semantic
 		// invariant we won't satisfy by independent column sampling
 		// (`ends_at > starts_at`, `finish > start`, …). Zero the table by

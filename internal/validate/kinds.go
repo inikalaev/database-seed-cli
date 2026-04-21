@@ -88,6 +88,6 @@ type FixSpec struct {
 	Kind   Kind
 	Table  string
 	Column string
-	Field  string // non-empty for KindJsonFieldUnresolved: the json field name
+	Field  string // non-empty for nested JSON issues: dot-separated path (`plan` or `addr.city`)
 	Ctx    map[string]any
 }

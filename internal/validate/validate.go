@@ -71,26 +71,9 @@ func checkColumn(cfg *config.Config, tableKey, cname string, col *config.ColumnS
 		out = append(out, checkColumnFactory(loc, tableKey, cname, col, reg)...)
 	}
 
-	for fieldName, fieldSpec := range col.Values {
-		if fieldSpec == nil {
-			continue
-		}
-		fieldLoc := loc + "." + fieldName
-		if fieldSpec.Unresolved {
-			out = append(out, Issue{
-				Level:    LevelWarn,
-				Kind:     KindJsonFieldUnresolved,
-				Location: fieldLoc,
-				Message:  "json field unresolved",
-				Hint:     "pick a factory with `seed-cli fix` or set factory: manually",
-				Fix:      &FixSpec{Kind: KindJsonFieldUnresolved, Table: tableKey, Column: cname, Field: fieldName},
-			})
-			continue
-		}
-		if issue, ok := missingFactoryParamsIssue(reg, fieldSpec.Factory, fieldSpec.Params, fieldLoc, tableKey, cname, fieldName); ok {
-			out = append(out, issue)
-		}
-	}
+	// Nested JSON shape: walk arbitrary depth. Subfield issues use a
+	// dot-separated Field path so `fix` can look up the nested spec.
+	out = append(out, checkJsonValues(reg, tableKey, cname, "", loc, col.Values)...)
 
 	if !col.Unresolved && col.Value == nil && len(col.Values) == 0 {
 		if issue, ok := missingFactoryParamsIssue(reg, col.Factory, col.Params, loc, tableKey, cname, ""); ok {
@@ -113,6 +96,51 @@ func checkColumn(cfg *config.Config, tableKey, cname string, col *config.ColumnS
 		out = append(out, checkFKRefTarget(cfg, loc, tableKey, cname, col)...)
 	}
 
+	return out
+}
+
+// checkJsonValues walks a nested JSON shape recursively and emits an issue
+// per unresolved field / missing factory param. pathPrefix is the
+// dot-separated accumulation of field names from the root column down to
+// values; empty at the top level. locPrefix is the user-facing location
+// ("schema.table.column…") used in rendered issues.
+//
+// Design note: we don't emit an issue for an intermediate node with its own
+// Values — nested shapes resolve field-by-field, and the container itself
+// has no factory to pick. We still recurse into it so deeper leaves get
+// their own diagnostics.
+func checkJsonValues(reg *registry.Registry, tableKey, cname, pathPrefix, locPrefix string, values map[string]*config.ColumnSpec) []Issue {
+	var out []Issue
+	for fieldName, fieldSpec := range values {
+		if fieldSpec == nil {
+			continue
+		}
+		fieldPath := fieldName
+		if pathPrefix != "" {
+			fieldPath = pathPrefix + "." + fieldName
+		}
+		fieldLoc := locPrefix + "." + fieldName
+		if fieldSpec.Unresolved {
+			out = append(out, Issue{
+				Level:    LevelWarn,
+				Kind:     KindJsonFieldUnresolved,
+				Location: fieldLoc,
+				Message:  "json field unresolved",
+				Hint:     "pick a factory with `seed-cli fix` or set factory: manually",
+				Fix:      &FixSpec{Kind: KindJsonFieldUnresolved, Table: tableKey, Column: cname, Field: fieldPath},
+			})
+			// An unresolved field is waiting for a factory; further checks
+			// would duplicate the ask. Still recurse so deeper shapes inside
+			// an unresolved branch stay visible.
+		} else if len(fieldSpec.Values) == 0 {
+			if issue, ok := missingFactoryParamsIssue(reg, fieldSpec.Factory, fieldSpec.Params, fieldLoc, tableKey, cname, fieldPath); ok {
+				out = append(out, issue)
+			}
+		}
+		if len(fieldSpec.Values) > 0 {
+			out = append(out, checkJsonValues(reg, tableKey, cname, fieldPath, fieldLoc, fieldSpec.Values)...)
+		}
+	}
 	return out
 }
 

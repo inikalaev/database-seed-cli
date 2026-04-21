@@ -664,6 +664,30 @@ go install ./cmd/seed-cli
 go test ./...
 ```
 
+### Testing strategy
+
+Tests are organized by layer. Each package owns the tests for its own responsibilities; integration between layers is covered end-to-end in the packages where integration actually happens.
+
+| Package | What is tested | How |
+|---------|---------------|-----|
+| `internal/validate` | Every `Check()` issue kind (unresolved, no-factory, fkref-*, unique, CHECK, EXCLUDE, …), `Counts`/`HasErrors`/`HasFixable`, `Kind.String()`, `UniqueSafeFactory` | Unit — minimal `*config.Config` values built inline |
+| `internal/factories` | `Generate()` returns a non-nil value of the right type for every built-in factory; `EnumValueStr`/`EnumValue.RequiredSetup` contract; boundary invariants (min/max inclusive, no overflow) | Unit + table-driven smoke |
+| `internal/config` | `Marshal/Unmarshal` round-trip, `Save/Load` via temp file, version warning callback, `Merge` idempotency (user edits survive re-sync), CHECK-constraint param propagation, migration scaffold | Unit |
+| `internal/sqlemit` | Full SQL output pinned to golden files in `testdata/` — regenerate with `go test -update` | Golden-file regression |
+| `internal/relations` | FK graph construction, topological order, cycle detection (Tarjan SCC), composite-FK grouping | Unit |
+| `internal/registry` | Factory lookup, deduplication, tag-based inference ranking | Unit |
+| `internal/configbuild` | `FromModel` column classification, default row count, enum inference | Unit |
+| `cmd/seed-cli/cli` | Pure helper functions only (`lookupJsonField`, `parseListInput`); interactive survey flows are not unit-tested | Unit |
+
+**What is not tested:** `buildplugins` (requires a full Go toolchain and disk writes at runtime — covered by the manual demo) and `pkg/seedapi` (only interface declarations).
+
+To view coverage per package:
+
+```bash
+go test -coverprofile=cover.out ./...
+go tool cover -func=cover.out | grep -v "100.0%"
+```
+
 ## Contributing
 
 Issues, PRs, and feedback are very welcome. Parts of this codebase were written with AI assistance, so bug reports and code reviews are especially appreciated.

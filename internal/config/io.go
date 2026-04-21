@@ -9,24 +9,40 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func Load(path string) (*Config, error) {
+func Load(path string, opts ...Option) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return Unmarshal(data)
+	return Unmarshal(data, opts...)
 }
 
-func Unmarshal(data []byte) (*Config, error) {
+func Unmarshal(data []byte, opts ...Option) (*Config, error) {
+	o := resolveOptions(opts)
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	version, err := readVersion(&doc)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case version == 0:
+		o.warn("warning: config has no version field; assuming version %d", CurrentVersion)
+	case version > CurrentVersion:
+		return nil, fmt.Errorf("config version %d is newer than this CLI supports (%d); upgrade seed CLI", version, CurrentVersion)
+	case version < CurrentVersion:
+		if err := migrateDocument(&doc); err != nil {
+			return nil, err
+		}
+	}
 	var c Config
-	if err := yaml.Unmarshal(data, &c); err != nil {
+	if err := doc.Decode(&c); err != nil {
 		return nil, err
 	}
 	if c.Version == 0 {
-		fmt.Fprintf(os.Stderr, "seed: warning: config has no version field; assuming version %d\n", CurrentVersion)
 		c.Version = CurrentVersion
-	} else if c.Version > CurrentVersion {
-		return nil, fmt.Errorf("config version %d is newer than this CLI supports (%d); upgrade seed CLI", c.Version, CurrentVersion)
 	}
 	c.normalize()
 	return &c, nil

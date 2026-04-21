@@ -6,10 +6,10 @@ import (
 	"strings"
 )
 
-// applyCheckConstraints merges parseable CHECK expressions into column params.
+// ApplyCheckConstraints merges parseable CHECK expressions into column params.
 // Returns the set of check names that were fully recognized so validate can
 // mark the rest as unparsed.
-func applyCheckConstraints(t *Table) map[string]bool {
+func ApplyCheckConstraints(t *Table) map[string]bool {
 	recognized := map[string]bool{}
 	for _, chk := range t.Checks {
 		// Single-column checks only. Multi-column requires correlated

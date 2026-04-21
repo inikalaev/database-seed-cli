@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/inikalaev/database-seed-cli/internal/config"
+	"github.com/inikalaev/database-seed-cli/internal/configbuild"
 	"github.com/inikalaev/database-seed-cli/internal/introspect"
 	"github.com/inikalaev/database-seed-cli/internal/registry"
 	"github.com/spf13/cobra"
@@ -55,7 +56,7 @@ func newInitCmd() *cobra.Command {
 				return err
 			}
 			reg := registry.Default()
-			cfg := config.FromModel(model, reg, config.DefaultsSection{Locale: opts.locale, Seed: opts.seed})
+			cfg := configbuild.FromModel(model, reg, config.DefaultsSection{Locale: opts.locale, Seed: opts.seed})
 			if err := config.Save(opts.output, cfg); err != nil {
 				return err
 			}

@@ -25,6 +25,10 @@ type Options struct {
 	Locale    string
 	Seed      int64
 	BatchSize int
+	// Logger receives non-fatal warning messages (e.g., unknown-factory
+	// fallbacks). nil = write to stderr; library consumers that want the
+	// messages programmatically can supply a callback.
+	Logger func(message string)
 }
 
 type Emitter struct {
@@ -66,6 +70,18 @@ func New(cfg *config.Config, reg *registry.Registry, plan *relations.Plan, opts 
 // Tables that emitted their full requested count are omitted.
 func (e *Emitter) Drops() map[string]DropInfo {
 	return e.drops
+}
+
+// warn emits msg via opts.Logger when set; otherwise stderr with a "seed: "
+// prefix. Called from hot-ish paths but only on first sight of each warnKey
+// (see runFactory), so allocation cost is negligible.
+func (e *Emitter) warn(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if e.opts.Logger != nil {
+		e.opts.Logger(msg)
+		return
+	}
+	fmt.Fprintln(os.Stderr, "seed: "+msg)
 }
 
 func (e *Emitter) Emit(w io.Writer) error {
@@ -320,7 +336,7 @@ func (e *Emitter) runFactory(ref relations.TableRef, colName string, spec *confi
 	if !ok {
 		warnKey := ref.Key() + "." + colName + ":" + spec.Factory
 		if !e.pool.warnedFactory[warnKey] {
-			fmt.Fprintf(os.Stderr, "seed: warning: unknown factory %q for %s.%s — emitting NULL\n", spec.Factory, ref.Key(), colName)
+			e.warn("warning: unknown factory %q for %s.%s — emitting NULL", spec.Factory, ref.Key(), colName)
 			e.pool.warnedFactory[warnKey] = true
 		}
 		return nil

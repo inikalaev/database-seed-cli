@@ -3,6 +3,7 @@ package validate
 import (
 	"testing"
 
+	"github.com/inikalaev/database-seed-cli/internal/config"
 	"github.com/inikalaev/database-seed-cli/internal/registry"
 	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
@@ -92,5 +93,49 @@ func TestMissingFactoryParamsIssue_FieldLocation(t *testing.T) {
 	}
 	if issue.Location != "t.c.f" {
 		t.Fatalf("location = %q", issue.Location)
+	}
+}
+
+// TestCheckJsonValues_RecursesIntoNestedShape ensures issues are emitted for
+// subfields buried under multiple layers of Values — not just depth-1.
+func TestCheckJsonValues_RecursesIntoNestedShape(t *testing.T) {
+	reg := registry.New([]seedapi.Factory{confFactory{name: "conf", keys: []string{"values"}}})
+
+	// shape: meta.addr.city is unresolved; meta.addr.street uses `conf` missing `values`.
+	col := &config.ColumnSpec{
+		Values: map[string]*config.ColumnSpec{
+			"addr": {
+				Values: map[string]*config.ColumnSpec{
+					"city":   {Unresolved: true, DataType: "text"},
+					"street": {Factory: "conf", DataType: "text"},
+				},
+			},
+			"plan": {Factory: "conf", DataType: "text"}, // depth-1, also missing values
+		},
+	}
+
+	issues := checkJsonValues(reg, "public.users", "meta", "", "public.users.meta", col.Values)
+	kinds := map[Kind]int{}
+	paths := map[string]bool{}
+	for _, iss := range issues {
+		kinds[iss.Kind]++
+		if iss.Fix != nil {
+			paths[iss.Fix.Field] = true
+		}
+	}
+	if kinds[KindJsonFieldUnresolved] != 1 {
+		t.Errorf("unresolved issues = %d, want 1", kinds[KindJsonFieldUnresolved])
+	}
+	if kinds[KindMissingFactoryParam] != 2 {
+		t.Errorf("missing-param issues = %d, want 2", kinds[KindMissingFactoryParam])
+	}
+	if !paths["addr.city"] {
+		t.Errorf("expected Fix.Field 'addr.city', got %v", paths)
+	}
+	if !paths["addr.street"] {
+		t.Errorf("expected Fix.Field 'addr.street', got %v", paths)
+	}
+	if !paths["plan"] {
+		t.Errorf("expected Fix.Field 'plan', got %v", paths)
 	}
 }
