@@ -20,6 +20,17 @@ var (
 
 const maxLocWidth = 45
 
+func issueStyle(level validate.Level) (*color.Color, string) {
+	switch level {
+	case validate.LevelErr:
+		return colorErr, "ERR "
+	case validate.LevelInfo:
+		return colorInfo, "INFO"
+	default:
+		return colorWarn, "WARN"
+	}
+}
+
 // printIssues renders validate.Issue list with colored severity tag, dimmed
 // location, and a hint column. When fixable issues exist it prints a trailing
 // "run seed-cli fix" pointer. Empty list prints "ok" to stdout.
@@ -29,35 +40,10 @@ func printIssues(out, errOut io.Writer, issues []validate.Issue, configPath stri
 		return
 	}
 
-	maxLoc := 0
-	maxMsg := 0
-	for _, i := range issues {
-		if l := len(i.Location); l > maxLoc {
-			maxLoc = l
-		}
-		if l := len(i.Message); l > maxMsg {
-			maxMsg = l
-		}
-	}
-	if maxLoc > maxLocWidth {
-		maxLoc = maxLocWidth
-	}
-	// Cap message width so long messages don't push hints to column 120+.
-	if maxMsg > 50 {
-		maxMsg = 50
-	}
+	maxLoc, maxMsg := columnWidths(issues)
 
 	for _, i := range issues {
-		var clr *color.Color
-		var tag string
-		switch i.Level {
-		case validate.LevelErr:
-			clr, tag = colorErr, "ERR "
-		case validate.LevelWarn:
-			clr, tag = colorWarn, "WARN"
-		case validate.LevelInfo:
-			clr, tag = colorInfo, "INFO"
-		}
+		clr, tag := issueStyle(i.Level)
 		loc := i.Location
 		if len(loc) > maxLocWidth {
 			loc = "…" + loc[len(loc)-maxLocWidth+1:]
@@ -73,6 +59,28 @@ func printIssues(out, errOut io.Writer, issues []validate.Issue, configPath stri
 		}
 	}
 
+	printIssueSummary(errOut, issues, configPath)
+}
+
+func columnWidths(issues []validate.Issue) (maxLoc, maxMsg int) {
+	for _, i := range issues {
+		if l := len(i.Location); l > maxLoc {
+			maxLoc = l
+		}
+		if l := len(i.Message); l > maxMsg {
+			maxMsg = l
+		}
+	}
+	if maxLoc > maxLocWidth {
+		maxLoc = maxLocWidth
+	}
+	if maxMsg > 50 {
+		maxMsg = 50
+	}
+	return
+}
+
+func printIssueSummary(errOut io.Writer, issues []validate.Issue, configPath string) {
 	errs, warns, infos := validate.Counts(issues)
 	fmt.Fprintln(errOut)
 	var parts []string

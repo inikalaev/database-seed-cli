@@ -40,42 +40,29 @@ const (
 	KindPartialUnique
 )
 
+var kindNames = map[Kind]string{
+	KindUnresolved:          "unresolved",
+	KindNoFactory:           "no-factory",
+	KindUnknownFactory:      "unknown-factory",
+	KindValueTypeMismatch:   "value-type-mismatch",
+	KindFKRefMissingTarget:  "fkref-missing-target",
+	KindFKRefTargetNotFound: "fkref-target-not-found",
+	KindRowCountPerMissing:  "row-count-per-missing",
+	KindFKRefEmptyPool:      "fkref-empty-pool",
+	KindFKRefInCycle:        "fkref-in-cycle",
+	KindUniqueUnsafeFactory: "unique-unsafe-factory",
+	KindCompositeUnique:     "composite-unique",
+	KindCompositeFK:         "composite-fk",
+	KindDeferrableCycle:     "deferrable-cycle",
+	KindNonDeferrableCycle:  "non-deferrable-cycle",
+	KindCheckNotApplied:     "check-not-applied",
+	KindExclude:             "exclude",
+	KindPartialUnique:       "partial-unique",
+}
+
 func (k Kind) String() string {
-	switch k {
-	case KindUnresolved:
-		return "unresolved"
-	case KindNoFactory:
-		return "no-factory"
-	case KindUnknownFactory:
-		return "unknown-factory"
-	case KindValueTypeMismatch:
-		return "value-type-mismatch"
-	case KindFKRefMissingTarget:
-		return "fkref-missing-target"
-	case KindFKRefTargetNotFound:
-		return "fkref-target-not-found"
-	case KindRowCountPerMissing:
-		return "row-count-per-missing"
-	case KindFKRefEmptyPool:
-		return "fkref-empty-pool"
-	case KindFKRefInCycle:
-		return "fkref-in-cycle"
-	case KindUniqueUnsafeFactory:
-		return "unique-unsafe-factory"
-	case KindCompositeUnique:
-		return "composite-unique"
-	case KindCompositeFK:
-		return "composite-fk"
-	case KindDeferrableCycle:
-		return "deferrable-cycle"
-	case KindNonDeferrableCycle:
-		return "non-deferrable-cycle"
-	case KindCheckNotApplied:
-		return "check-not-applied"
-	case KindExclude:
-		return "exclude"
-	case KindPartialUnique:
-		return "partial-unique"
+	if s, ok := kindNames[k]; ok {
+		return s
 	}
 	return "unknown"
 }
@@ -85,9 +72,9 @@ func (k Kind) String() string {
 type Issue struct {
 	Level    Level
 	Kind     Kind
-	Location string   // "schema.table.column" for column issues, "schema.table" for table, "fk cycle" for graph
-	Message  string   // short description printed as the main text
-	Hint     string   // actionable one-liner, e.g. "add factory: timestamp"
+	Location string  // "schema.table.column" for column issues, "schema.table" for table, "fk cycle" for graph
+	Message  string  // short description printed as the main text
+	Hint     string  // actionable one-liner, e.g. "add factory: timestamp"
 	Fix      *FixSpec // nil when auto-fix is not available (composite UNIQUE, EXCLUDE, …)
 }
 

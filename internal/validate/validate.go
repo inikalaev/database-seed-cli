@@ -18,7 +18,28 @@ import (
 // (malformed FK metadata); every other problem is expressed as an Issue.
 func Check(cfg *config.Config, reg *registry.Registry) ([]Issue, error) {
 	var out []Issue
+	out = append(out, checkColumns(cfg, reg)...)
+	out = append(out, checkRowCountPer(cfg)...)
 
+	g, err := relations.Build(cfg)
+	if err != nil {
+		return out, err
+	}
+	plan := g.PlanFor(cfg)
+
+	out = append(out, checkFKEmptyPool(cfg, plan)...)
+	out = append(out, checkFKInCycle(cfg, plan)...)
+	out = append(out, checkUniqueKeys(cfg, reg)...)
+	out = append(out, checkCompositeFKs(cfg)...)
+	out = append(out, checkCycles(plan)...)
+	out = append(out, checkConstraints(cfg)...)
+	out = append(out, checkExcludes(cfg)...)
+	out = append(out, checkPartialUniques(cfg)...)
+	return out, nil
+}
+
+func checkColumns(cfg *config.Config, reg *registry.Registry) []Issue {
+	var out []Issue
 	for key, t := range cfg.Tables {
 		if t.Removed {
 			continue
@@ -27,91 +48,96 @@ func Check(cfg *config.Config, reg *registry.Registry) ([]Issue, error) {
 			if col.Removed {
 				continue
 			}
-			loc := key + "." + cname
-			if col.Unresolved {
-				out = append(out, Issue{
-					Level:    LevelWarn,
-					Kind:     KindUnresolved,
-					Location: loc,
-					Message:  "unresolved",
-					Hint:     "pick a factory with `seed-cli fix` or set `factory:` manually",
-					Fix: &FixSpec{
-						Kind: KindUnresolved, Table: key, Column: cname,
-					},
-				})
-			}
-			needsFactory := col.Value == nil && len(col.Values) == 0
-			if needsFactory {
-				if col.Factory == "" {
-					out = append(out, Issue{
-						Level:    LevelErr,
-						Kind:     KindNoFactory,
-						Location: loc,
-						Message:  "no factory",
-						Hint:     "add `factory:` or set a literal `value:`",
-						Fix: &FixSpec{
-							Kind: KindNoFactory, Table: key, Column: cname,
-						},
-					})
-				} else if _, ok := reg.Get(col.Factory); !ok {
-					out = append(out, Issue{
-						Level:    LevelErr,
-						Kind:     KindUnknownFactory,
-						Location: loc,
-						Message:  fmt.Sprintf("unknown factory %q", col.Factory),
-						Hint:     "typo? pick a real factory, or keep if it's a user plugin",
-						Fix: &FixSpec{
-							Kind: KindUnknownFactory, Table: key, Column: cname,
-							Ctx: map[string]any{"current": col.Factory},
-						},
-					})
-				}
-			}
-			if col.Value != nil && col.DataType != "" {
-				if err := checkValueType(col.Value, col.DataType); err != nil {
-					out = append(out, Issue{
-						Level:    LevelErr,
-						Kind:     KindValueTypeMismatch,
-						Location: loc,
-						Message:  fmt.Sprintf("value type mismatch: %v", err),
-						Hint:     "use a literal of the right type or drop `value:`",
-						Fix: &FixSpec{
-							Kind: KindValueTypeMismatch, Table: key, Column: cname,
-						},
-					})
-				}
-			}
-			if col.Factory == seedapi.FactoryFKRef {
-				target, _ := col.Params["target"].(string)
-				switch {
-				case target == "":
-					out = append(out, Issue{
-						Level:    LevelErr,
-						Kind:     KindFKRefMissingTarget,
-						Location: loc,
-						Message:  "fkref: missing target",
-						Hint:     "add `params: {target: schema.table.column}`",
-						Fix: &FixSpec{
-							Kind: KindFKRefMissingTarget, Table: key, Column: cname,
-						},
-					})
-				case !targetExists(cfg, target):
-					out = append(out, Issue{
-						Level:    LevelErr,
-						Kind:     KindFKRefTargetNotFound,
-						Location: loc,
-						Message:  fmt.Sprintf("fkref: target %q not found", target),
-						Hint:     "pick an existing PK column",
-						Fix: &FixSpec{
-							Kind: KindFKRefTargetNotFound, Table: key, Column: cname,
-							Ctx: map[string]any{"current": target},
-						},
-					})
-				}
-			}
+			out = append(out, checkColumn(cfg, key, cname, col, reg)...)
+		}
+	}
+	return out
+}
+
+func checkColumn(cfg *config.Config, tableKey, cname string, col *config.ColumnSpec, reg *registry.Registry) []Issue {
+	var out []Issue
+	loc := tableKey + "." + cname
+
+	if col.Unresolved {
+		out = append(out, Issue{
+			Level: LevelWarn, Kind: KindUnresolved, Location: loc,
+			Message: "unresolved",
+			Hint:    "pick a factory with `seed-cli fix` or set `factory:` manually",
+			Fix:     &FixSpec{Kind: KindUnresolved, Table: tableKey, Column: cname},
+		})
+	}
+
+	if col.Value == nil && len(col.Values) == 0 {
+		out = append(out, checkColumnFactory(loc, tableKey, cname, col, reg)...)
+	}
+
+	if col.Value != nil && col.DataType != "" {
+		if err := checkValueType(col.Value, col.DataType); err != nil {
+			out = append(out, Issue{
+				Level: LevelErr, Kind: KindValueTypeMismatch, Location: loc,
+				Message: fmt.Sprintf("value type mismatch: %v", err),
+				Hint:    "use a literal of the right type or drop `value:`",
+				Fix:     &FixSpec{Kind: KindValueTypeMismatch, Table: tableKey, Column: cname},
+			})
 		}
 	}
 
+	if col.Factory == seedapi.FactoryFKRef {
+		out = append(out, checkFKRefTarget(cfg, loc, tableKey, cname, col)...)
+	}
+
+	return out
+}
+
+func checkColumnFactory(loc, tableKey, cname string, col *config.ColumnSpec, reg *registry.Registry) []Issue {
+	if col.Factory == "" {
+		return []Issue{{
+			Level: LevelErr, Kind: KindNoFactory, Location: loc,
+			Message: "no factory",
+			Hint:    "add `factory:` or set a literal `value:`",
+			Fix:     &FixSpec{Kind: KindNoFactory, Table: tableKey, Column: cname},
+		}}
+	}
+	if _, ok := reg.Get(col.Factory); !ok {
+		return []Issue{{
+			Level: LevelErr, Kind: KindUnknownFactory, Location: loc,
+			Message: fmt.Sprintf("unknown factory %q", col.Factory),
+			Hint:    "typo? pick a real factory, or keep if it's a user plugin",
+			Fix: &FixSpec{
+				Kind: KindUnknownFactory, Table: tableKey, Column: cname,
+				Ctx: map[string]any{"current": col.Factory},
+			},
+		}}
+	}
+	return nil
+}
+
+func checkFKRefTarget(cfg *config.Config, loc, tableKey, cname string, col *config.ColumnSpec) []Issue {
+	target, _ := col.Params["target"].(string)
+	switch {
+	case target == "":
+		return []Issue{{
+			Level: LevelErr, Kind: KindFKRefMissingTarget, Location: loc,
+			Message: "fkref: missing target",
+			Hint:    "add `params: {target: schema.table.column}`",
+			Fix:     &FixSpec{Kind: KindFKRefMissingTarget, Table: tableKey, Column: cname},
+		}}
+	case !targetExists(cfg, target):
+		return []Issue{{
+			Level: LevelErr, Kind: KindFKRefTargetNotFound, Location: loc,
+			Message: fmt.Sprintf("fkref: target %q not found", target),
+			Hint:    "pick an existing PK column",
+			Fix: &FixSpec{
+				Kind: KindFKRefTargetNotFound, Table: tableKey, Column: cname,
+				Ctx: map[string]any{"current": target},
+			},
+		}}
+	}
+	return nil
+}
+
+func checkRowCountPer(cfg *config.Config) []Issue {
+	var out []Issue
 	for key, t := range cfg.Tables {
 		if t.Removed {
 			continue
@@ -124,11 +150,9 @@ func Check(cfg *config.Config, reg *registry.Registry) ([]Issue, error) {
 			pt, exists := cfg.Tables[parentKey]
 			if !exists || pt.Removed {
 				out = append(out, Issue{
-					Level:    LevelErr,
-					Kind:     KindRowCountPerMissing,
-					Location: key,
-					Message:  fmt.Sprintf("row_count_per: parent %q missing", parentKey),
-					Hint:     "fix the key or remove the entry",
+					Level: LevelErr, Kind: KindRowCountPerMissing, Location: key,
+					Message: fmt.Sprintf("row_count_per: parent %q missing", parentKey),
+					Hint:    "fix the key or remove the entry",
 					Fix: &FixSpec{
 						Kind: KindRowCountPerMissing, Table: key,
 						Ctx: map[string]any{"parent": parent, "parentKey": parentKey},
@@ -137,13 +161,11 @@ func Check(cfg *config.Config, reg *registry.Registry) ([]Issue, error) {
 			}
 		}
 	}
+	return out
+}
 
-	g, err := relations.Build(cfg)
-	if err != nil {
-		return out, err
-	}
-	plan := g.PlanFor(cfg)
-
+func checkFKEmptyPool(cfg *config.Config, plan *relations.Plan) []Issue {
+	var out []Issue
 	for key, t := range cfg.Tables {
 		if t.Removed {
 			continue
@@ -159,8 +181,7 @@ func Check(cfg *config.Config, reg *registry.Registry) ([]Issue, error) {
 			targetKey := fkTargetTableKey(target)
 			if plan.RowCounts[targetKey] == 0 {
 				out = append(out, Issue{
-					Level:    LevelErr,
-					Kind:     KindFKRefEmptyPool,
+					Level: LevelErr, Kind: KindFKRefEmptyPool,
 					Location: key + "." + cname,
 					Message:  fmt.Sprintf("fkref NOT NULL → %s has row_count 0", targetKey),
 					Hint:     "raise parent row_count, mark column nullable, or set `value:`",
@@ -172,50 +193,60 @@ func Check(cfg *config.Config, reg *registry.Registry) ([]Issue, error) {
 			}
 		}
 	}
+	return out
+}
 
-	if len(plan.Cycles) > 0 {
-		cycleMembers := map[string]map[string]bool{}
-		for _, cycle := range plan.Cycles {
-			members := map[string]bool{}
-			for _, ref := range cycle {
-				members[ref.Key()] = true
-			}
-			for _, ref := range cycle {
-				cycleMembers[ref.Key()] = members
-			}
+func checkFKInCycle(cfg *config.Config, plan *relations.Plan) []Issue {
+	if len(plan.Cycles) == 0 {
+		return nil
+	}
+	cycleMembers := buildCycleMembers(plan.Cycles)
+
+	var out []Issue
+	for key, t := range cfg.Tables {
+		if t.Removed {
+			continue
 		}
-		for key, t := range cfg.Tables {
-			if t.Removed {
+		siblings := cycleMembers[key]
+		if len(siblings) == 0 {
+			continue
+		}
+		for cname, col := range t.Columns {
+			if col.Removed || col.Factory != seedapi.FactoryFKRef || col.Nullable {
 				continue
 			}
-			siblings := cycleMembers[key]
-			if len(siblings) == 0 {
+			target, _ := col.Params["target"].(string)
+			if target == "" || !siblings[fkTargetTableKey(target)] {
 				continue
 			}
-			for cname, col := range t.Columns {
-				if col.Removed || col.Factory != seedapi.FactoryFKRef || col.Nullable {
-					continue
-				}
-				target, _ := col.Params["target"].(string)
-				if target == "" {
-					continue
-				}
-				if siblings[fkTargetTableKey(target)] {
-					out = append(out, Issue{
-						Level:    LevelErr,
-						Kind:     KindFKRefInCycle,
-						Location: key + "." + cname,
-						Message:  "NOT NULL fkref in FK cycle — NULL on first emit",
-						Hint:     "mark nullable or set `value:` to break the first-emit NULL",
-						Fix: &FixSpec{
-							Kind: KindFKRefInCycle, Table: key, Column: cname,
-						},
-					})
-				}
-			}
+			out = append(out, Issue{
+				Level: LevelErr, Kind: KindFKRefInCycle,
+				Location: key + "." + cname,
+				Message:  "NOT NULL fkref in FK cycle — NULL on first emit",
+				Hint:     "mark nullable or set `value:` to break the first-emit NULL",
+				Fix:      &FixSpec{Kind: KindFKRefInCycle, Table: key, Column: cname},
+			})
 		}
 	}
+	return out
+}
 
+func buildCycleMembers(cycles [][]relations.TableRef) map[string]map[string]bool {
+	result := map[string]map[string]bool{}
+	for _, cycle := range cycles {
+		members := map[string]bool{}
+		for _, ref := range cycle {
+			members[ref.Key()] = true
+		}
+		for _, ref := range cycle {
+			result[ref.Key()] = members
+		}
+	}
+	return result
+}
+
+func checkUniqueKeys(cfg *config.Config, reg *registry.Registry) []Issue {
+	var out []Issue
 	for key, t := range cfg.Tables {
 		if t.Removed {
 			continue
@@ -223,11 +254,9 @@ func Check(cfg *config.Config, reg *registry.Registry) ([]Issue, error) {
 		for _, uk := range t.UniqueKeys {
 			if len(uk) != 1 {
 				out = append(out, Issue{
-					Level:    LevelInfo,
-					Kind:     KindCompositeUnique,
-					Location: key,
-					Message:  fmt.Sprintf("composite UNIQUE %v — verify manually", uk),
-					Hint:     "ensure factory combinations produce distinct tuples",
+					Level: LevelInfo, Kind: KindCompositeUnique, Location: key,
+					Message: fmt.Sprintf("composite UNIQUE %v — verify manually", uk),
+					Hint:    "ensure factory combinations produce distinct tuples",
 				})
 				continue
 			}
@@ -237,8 +266,7 @@ func Check(cfg *config.Config, reg *registry.Registry) ([]Issue, error) {
 			}
 			if !uniqueSafeFactory(col.Factory, reg) {
 				out = append(out, Issue{
-					Level:    LevelWarn,
-					Kind:     KindUniqueUnsafeFactory,
+					Level: LevelWarn, Kind: KindUniqueUnsafeFactory,
 					Location: key + "." + uk[0],
 					Message:  fmt.Sprintf("UNIQUE + unsafe factory %q", col.Factory),
 					Hint:     "switch to uuid/pk_serial/token, or accept collision risk",
@@ -250,86 +278,101 @@ func Check(cfg *config.Config, reg *registry.Registry) ([]Issue, error) {
 			}
 		}
 	}
+	return out
+}
 
+type parentTable struct{ schema, table string }
+type fkMapping struct{ parentCol, childCol string }
+
+func checkCompositeFKs(cfg *config.Config) []Issue {
+	var out []Issue
 	for key, t := range cfg.Tables {
 		if t.Removed {
 			continue
 		}
-		type parentTable struct{ schema, table string }
-		type fkMapping struct{ parentCol, childCol string }
-		fkMappings := map[parentTable][]fkMapping{}
-		for cname, col := range t.Columns {
-			if col.Removed || col.Factory != seedapi.FactoryFKRef {
-				continue
-			}
-			target, _ := col.Params["target"].(string)
-			if target == "" {
-				continue
-			}
-			parts := strings.Split(target, ".")
-			var ps, pt, pc string
-			switch len(parts) {
-			case 3:
-				ps, pt, pc = parts[0], parts[1], parts[2]
-			case 2:
-				ps, pt, pc = "public", parts[0], parts[1]
-			default:
-				continue
-			}
-			ref := parentTable{ps, pt}
-			fkMappings[ref] = append(fkMappings[ref], fkMapping{pc, cname})
+		out = append(out, checkTableCompositeFKs(key, t)...)
+	}
+	return out
+}
+
+func checkTableCompositeFKs(tableKey string, t *config.Table) []Issue {
+	fkMappings := map[parentTable][]fkMapping{}
+	for cname, col := range t.Columns {
+		if col.Removed || col.Factory != seedapi.FactoryFKRef {
+			continue
 		}
-		for ref, mappings := range fkMappings {
-			if len(mappings) <= 1 {
-				continue
-			}
-			parentCols := map[string]bool{}
-			for _, m := range mappings {
-				parentCols[m.parentCol] = true
-			}
-			if len(parentCols) > 1 {
-				childCols := make([]string, len(mappings))
-				for i, m := range mappings {
-					childCols[i] = m.childCol
-				}
-				out = append(out, Issue{
-					Level:    LevelWarn,
-					Kind:     KindCompositeFK,
-					Location: key,
-					Message:  fmt.Sprintf("composite FK %v → %s.%s (independent sampling)", childCols, ref.schema, ref.table),
-					Hint:     "write a correlated custom generator if tuple consistency matters",
-				})
-			}
+		target, _ := col.Params["target"].(string)
+		if target == "" {
+			continue
 		}
+		parts := strings.Split(target, ".")
+		var ps, pt, pc string
+		switch len(parts) {
+		case 3:
+			ps, pt, pc = parts[0], parts[1], parts[2]
+		case 2:
+			ps, pt, pc = "public", parts[0], parts[1]
+		default:
+			continue
+		}
+		ref := parentTable{ps, pt}
+		fkMappings[ref] = append(fkMappings[ref], fkMapping{pc, cname})
 	}
 
-	if len(plan.Cycles) > 0 {
-		for _, c := range plan.Cycles {
-			bad := plan.NonDeferrableEdgesIn(c)
-			if len(bad) > 0 {
-				names := make([]string, len(bad))
-				for i, e := range bad {
-					names[i] = e.From.Key() + "." + e.Column
-				}
-				out = append(out, Issue{
-					Level:    LevelErr,
-					Kind:     KindNonDeferrableCycle,
-					Location: "fk cycle",
-					Message:  fmt.Sprintf("non-deferrable edges %v — apply will fail", names),
-					Hint:     "ALTER TABLE ... INITIALLY DEFERRED, or make an edge nullable in the DB",
-				})
-			} else {
-				out = append(out, Issue{
-					Level:    LevelInfo,
-					Kind:     KindDeferrableCycle,
-					Location: "fk cycle",
-					Message:  fmt.Sprintf("%v (DEFERRABLE)", refsKeys(c)),
-					Hint:     "ok — generator emits SET CONSTRAINTS ALL DEFERRED",
-				})
+	var out []Issue
+	for ref, mappings := range fkMappings {
+		if len(mappings) <= 1 {
+			continue
+		}
+		parentCols := map[string]bool{}
+		for _, m := range mappings {
+			parentCols[m.parentCol] = true
+		}
+		if len(parentCols) <= 1 {
+			continue
+		}
+		childCols := make([]string, len(mappings))
+		for i, m := range mappings {
+			childCols[i] = m.childCol
+		}
+		out = append(out, Issue{
+			Level: LevelWarn, Kind: KindCompositeFK, Location: tableKey,
+			Message: fmt.Sprintf("composite FK %v → %s.%s (independent sampling)", childCols, ref.schema, ref.table),
+			Hint:    "write a correlated custom generator if tuple consistency matters",
+		})
+	}
+	return out
+}
+
+func checkCycles(plan *relations.Plan) []Issue {
+	if len(plan.Cycles) == 0 {
+		return nil
+	}
+	var out []Issue
+	for _, c := range plan.Cycles {
+		if bad := plan.NonDeferrableEdgesIn(c); len(bad) > 0 {
+			names := make([]string, len(bad))
+			for i, e := range bad {
+				names[i] = e.From.Key() + "." + e.Column
 			}
+			out = append(out, Issue{
+				Level: LevelErr, Kind: KindNonDeferrableCycle, Location: "fk cycle",
+				Message: fmt.Sprintf("non-deferrable edges %v — apply will fail", names),
+				Hint:    "ALTER TABLE ... INITIALLY DEFERRED, or make an edge nullable in the DB",
+			})
+		} else {
+			out = append(out, Issue{
+				Level: LevelInfo, Kind: KindDeferrableCycle, Location: "fk cycle",
+				Message: fmt.Sprintf("%v (DEFERRABLE)", refsKeys(c)),
+				Hint:    "ok — generator emits SET CONSTRAINTS ALL DEFERRED",
+			})
 		}
 	}
+	return out
+}
 
+func checkConstraints(cfg *config.Config) []Issue {
+	var out []Issue
 	for key, t := range cfg.Tables {
 		if t.Removed {
 			continue
@@ -339,46 +382,47 @@ func Check(cfg *config.Config, reg *registry.Registry) ([]Issue, error) {
 				continue
 			}
 			out = append(out, Issue{
-				Level:    LevelInfo,
-				Kind:     KindCheckNotApplied,
-				Location: key,
-				Message:  fmt.Sprintf("CHECK %q not applied: %s", chk.Name, chk.Expression),
-				Hint:     "tune factory params (min/max/values) so output satisfies the check",
+				Level: LevelInfo, Kind: KindCheckNotApplied, Location: key,
+				Message: fmt.Sprintf("CHECK %q not applied: %s", chk.Name, chk.Expression),
+				Hint:    "tune factory params (min/max/values) so output satisfies the check",
 			})
 		}
 	}
+	return out
+}
 
+func checkExcludes(cfg *config.Config) []Issue {
+	var out []Issue
 	for key, t := range cfg.Tables {
 		if t.Removed {
 			continue
 		}
 		for _, ex := range t.Excludes {
 			out = append(out, Issue{
-				Level:    LevelWarn,
-				Kind:     KindExclude,
-				Location: key,
-				Message:  fmt.Sprintf("EXCLUDE %q: %s", ex.Name, ex.Definition),
-				Hint:     "default generation will likely violate — set row_count: 0 or write a correlated generator",
+				Level: LevelWarn, Kind: KindExclude, Location: key,
+				Message: fmt.Sprintf("EXCLUDE %q: %s", ex.Name, ex.Definition),
+				Hint:    "default generation will likely violate — set row_count: 0 or write a correlated generator",
 			})
 		}
 	}
+	return out
+}
 
+func checkPartialUniques(cfg *config.Config) []Issue {
+	var out []Issue
 	for key, t := range cfg.Tables {
 		if t.Removed {
 			continue
 		}
 		for _, p := range t.PartialUniqueKeys {
 			out = append(out, Issue{
-				Level:    LevelInfo,
-				Kind:     KindPartialUnique,
-				Location: key,
-				Message:  fmt.Sprintf("partial UNIQUE %v WHERE %s", p.Columns, p.Predicate),
-				Hint:     "generator does not enforce the WHERE clause — verify manually",
+				Level: LevelInfo, Kind: KindPartialUnique, Location: key,
+				Message: fmt.Sprintf("partial UNIQUE %v WHERE %s", p.Columns, p.Predicate),
+				Hint:    "generator does not enforce the WHERE clause — verify manually",
 			})
 		}
 	}
-
-	return out, nil
+	return out
 }
 
 // Counts returns the number of issues per level for stats rendering.
@@ -439,6 +483,7 @@ func targetExists(cfg *config.Config, target string) bool {
 	}
 	return true
 }
+
 
 func fkTargetTableKey(target string) string {
 	parts := strings.Split(target, ".")

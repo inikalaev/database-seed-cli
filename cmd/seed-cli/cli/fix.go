@@ -62,19 +62,7 @@ func runFix(cmd *cobra.Command, opts fixOpts) error {
 		return err
 	}
 
-	fixable := make([]validate.Issue, 0, len(issues))
-	for _, i := range issues {
-		if i.Fix != nil {
-			fixable = append(fixable, i)
-		}
-	}
-	sort.SliceStable(fixable, func(i, j int) bool {
-		if fixable[i].Level != fixable[j].Level {
-			return fixable[i].Level < fixable[j].Level
-		}
-		return fixable[i].Location < fixable[j].Location
-	})
-
+	fixable := collectFixable(issues)
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
@@ -83,13 +71,7 @@ func runFix(cmd *cobra.Command, opts fixOpts) error {
 		return nil
 	}
 
-	fmt.Fprintf(errOut, "Found ")
-	colorWarn.Fprintf(errOut, "%d", len(fixable))
-	fmt.Fprintf(errOut, " fixable issue(s). Ctrl+C at any time — your edits are saved after each fix.\n")
-	if opts.dryRun {
-		colorHint.Fprintln(errOut, "dry-run: config will NOT be written to disk")
-	}
-	fmt.Fprintln(errOut)
+	printFixBanner(errOut, len(fixable), opts.dryRun)
 
 	applied, skipped := 0, 0
 	interrupted := false
@@ -105,27 +87,62 @@ func runFix(cmd *cobra.Command, opts fixOpts) error {
 			skipped++
 			continue
 		}
-		switch result {
-		case fixApplied:
-			applied++
-			if !opts.dryRun {
-				if err := config.Save(opts.config, cfg); err != nil {
-					return fmt.Errorf("save %s: %w", opts.config, err)
-				}
-			}
-			colorOK.Fprintln(errOut, "  ✓ applied")
-		case fixSkipped:
-			skipped++
-			colorDim.Fprintln(errOut, "  skipped")
+		if err := applyFixResult(result, opts, cfg, errOut, &applied, &skipped); err != nil {
+			return err
 		}
 		fmt.Fprintln(errOut)
 	}
 
-	remainingAuto := len(fixable) - applied - skipped
-	nonAuto := len(issues) - len(fixable)
+	printFixSummary(errOut, applied, skipped, len(fixable)-applied-skipped, len(issues)-len(fixable), interrupted, opts.config)
+	return nil
+}
 
+func collectFixable(issues []validate.Issue) []validate.Issue {
+	fixable := make([]validate.Issue, 0, len(issues))
+	for _, i := range issues {
+		if i.Fix != nil {
+			fixable = append(fixable, i)
+		}
+	}
+	sort.SliceStable(fixable, func(i, j int) bool {
+		if fixable[i].Level != fixable[j].Level {
+			return fixable[i].Level < fixable[j].Level
+		}
+		return fixable[i].Location < fixable[j].Location
+	})
+	return fixable
+}
+
+func printFixBanner(errOut interface{ Write([]byte) (int, error) }, n int, dryRun bool) {
+	fmt.Fprintf(errOut, "Found ")
+	colorWarn.Fprintf(errOut, "%d", n)
+	fmt.Fprintf(errOut, " fixable issue(s). Ctrl+C at any time — your edits are saved after each fix.\n")
+	if dryRun {
+		colorHint.Fprintln(errOut, "dry-run: config will NOT be written to disk")
+	}
 	fmt.Fprintln(errOut)
-	summary := []string{}
+}
+
+func applyFixResult(result fixResult, opts fixOpts, cfg *config.Config, errOut interface{ Write([]byte) (int, error) }, applied, skipped *int) error {
+	switch result {
+	case fixApplied:
+		*applied++
+		if !opts.dryRun {
+			if err := config.Save(opts.config, cfg); err != nil {
+				return fmt.Errorf("save %s: %w", opts.config, err)
+			}
+		}
+		colorOK.Fprintln(errOut, "  ✓ applied")
+	case fixSkipped:
+		*skipped++
+		colorDim.Fprintln(errOut, "  skipped")
+	}
+	return nil
+}
+
+func printFixSummary(errOut interface{ Write([]byte) (int, error) }, applied, skipped, remainingAuto, nonAuto int, interrupted bool, configPath string) {
+	fmt.Fprintln(errOut)
+	var summary []string
 	if applied > 0 {
 		summary = append(summary, colorOK.Sprintf("%d fixed", applied))
 	}
@@ -142,14 +159,13 @@ func runFix(cmd *cobra.Command, opts fixOpts) error {
 
 	if interrupted {
 		fmt.Fprintln(errOut)
-		colorHint.Fprintf(errOut, "→ run `seed-cli fix -c %s` again to continue\n", opts.config)
-		return nil
+		colorHint.Fprintf(errOut, "→ run `seed-cli fix -c %s` again to continue\n", configPath)
+		return
 	}
 	if applied > 0 {
 		fmt.Fprintln(errOut)
-		colorHint.Fprintf(errOut, "→ run `seed-cli validate -c %s` to re-check\n", opts.config)
+		colorHint.Fprintf(errOut, "→ run `seed-cli validate -c %s` to re-check\n", configPath)
 	}
-	return nil
 }
 
 func printHeader(w interface{ Write(p []byte) (int, error) }, idx, total int, issue validate.Issue) {
