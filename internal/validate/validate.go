@@ -484,7 +484,6 @@ func targetExists(cfg *config.Config, target string) bool {
 	return true
 }
 
-
 func fkTargetTableKey(target string) string {
 	parts := strings.Split(target, ".")
 	switch len(parts) {

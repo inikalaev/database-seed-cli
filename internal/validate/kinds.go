@@ -72,9 +72,9 @@ func (k Kind) String() string {
 type Issue struct {
 	Level    Level
 	Kind     Kind
-	Location string  // "schema.table.column" for column issues, "schema.table" for table, "fk cycle" for graph
-	Message  string  // short description printed as the main text
-	Hint     string  // actionable one-liner, e.g. "add factory: timestamp"
+	Location string   // "schema.table.column" for column issues, "schema.table" for table, "fk cycle" for graph
+	Message  string   // short description printed as the main text
+	Hint     string   // actionable one-liner, e.g. "add factory: timestamp"
 	Fix      *FixSpec // nil when auto-fix is not available (composite UNIQUE, EXCLUDE, …)
 }
 
