@@ -1,6 +1,7 @@
 # database-seed-cli
 
 [![CI](https://github.com/inikalaev/database-seed-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/inikalaev/database-seed-cli/actions/workflows/ci.yml)
+[![Release](https://github.com/inikalaev/database-seed-cli/actions/workflows/release.yml/badge.svg)](https://github.com/inikalaev/database-seed-cli/actions/workflows/release.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/inikalaev/database-seed-cli)](https://goreportcard.com/report/github.com/inikalaev/database-seed-cli)
 [![Go Reference](https://pkg.go.dev/badge/github.com/inikalaev/database-seed-cli.svg)](https://pkg.go.dev/github.com/inikalaev/database-seed-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -91,7 +92,7 @@ Both flags accept short form (`table`) or fully-qualified (`schema.table`), and 
 
 `seed-cli validate` prints issues at three severity levels:
 
-- `ERR` — blocks `generate`; the SQL script will fail on apply. Must be fixed.
+- `ERR` — `generate` will likely fail or produce SQL that errors on apply. Fix before generating.
 - `WARN` — likely failure on apply or correctness issue (duplicates, NULL in NOT NULL). Resolve before running against real data.
 - `INFO` — constraint the generator cannot automate (composite UNIQUE/FK, CHECK, EXCLUDE, partial UNIQUE). A reminder of manual responsibility.
 
