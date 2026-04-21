@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/config"
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/internal/config"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 type TableRef struct {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 // textMech is the intentional weak fallback for any text column that no other

@@ -5,7 +5,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 func newRng() *rand.Rand {

@@ -3,7 +3,7 @@ package factories
 import (
 	"math"
 
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 type amountMech struct{}

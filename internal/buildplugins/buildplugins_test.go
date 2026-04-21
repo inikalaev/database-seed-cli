@@ -7,17 +7,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/buildplugins"
+	"github.com/inikalaev/database-seed-cli/internal/buildplugins"
 )
 
-// TestBuildAndRunWithGenerators compiles an augmented binary with the custom
-// my_rating factory, runs generate, and verifies the output contains the expected
-// table and rating values in the range 1–5.
+// TestBuildAndRunWithFactories compiles an augmented binary with the custom
+// my_rating factory from testdata/buildplugins/factories, runs generate, and
+// verifies the output contains the expected table and rating values in the range 1–5.
 //
 // Skipped when:
 //   - `go` is not in PATH
 //   - SEED_CLI_SRC is not set (auto-computed from the test file location)
-func TestBuildAndRunWithGenerators(t *testing.T) {
+func TestBuildAndRunWithFactories(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go not in PATH")
 	}

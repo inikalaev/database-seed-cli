@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 // localizedJSON generates a multilingual JSON object for jsonb columns that

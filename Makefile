@@ -1,10 +1,13 @@
 BIN := bin/seed-cli
 PKG := ./...
 
-.PHONY: build test lint fmt tidy run clean
+.PHONY: build test lint fmt tidy run clean install
 
 build:
-	go build -o $(BIN) ./cmd/seed
+	go build -o $(BIN) ./cmd/seed-cli
+
+install:
+	go install ./cmd/seed-cli
 
 test:
 	go test $(PKG)
@@ -20,7 +23,7 @@ tidy:
 	go mod tidy
 
 run:
-	go run ./cmd/seed $(ARGS)
+	go run ./cmd/seed-cli $(ARGS)
 
 clean:
 	rm -rf bin coverage.out coverage.html

@@ -8,9 +8,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/config"
-	"github.com/ivannikolaev/seed-cli/cli/internal/introspect"
-	"github.com/ivannikolaev/seed-cli/cli/internal/registry"
+	"github.com/inikalaev/database-seed-cli/internal/config"
+	"github.com/inikalaev/database-seed-cli/internal/introspect"
+	"github.com/inikalaev/database-seed-cli/internal/registry"
 	"github.com/spf13/cobra"
 )
 
@@ -73,7 +73,7 @@ func newInitCmd() *cobra.Command {
 	flags.StringSliceVar(&opts.only, "only", nil, "Include only these tables (comma-separated or repeatable). Accepts `table` or `schema.table`.")
 	flags.StringSliceVar(&opts.exclude, "exclude", nil, "Exclude these tables (comma-separated or repeatable). Accepts `table` or `schema.table`.")
 	flags.StringVar(&opts.locale, "locale", "en_US", "Default locale for mechanisms")
-	flags.Int64Var(&opts.seed, "seed", 0, "Deterministic seed for generators (0 is used literally)")
+	flags.Int64Var(&opts.seed, "seed", 0, "Deterministic seed for factories (0 is used literally)")
 	return cmd
 }
 

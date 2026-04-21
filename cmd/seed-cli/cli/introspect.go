@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/introspect"
+	"github.com/inikalaev/database-seed-cli/internal/introspect"
 	"github.com/spf13/cobra"
 )
 

@@ -1,6 +1,6 @@
 package factories
 
-import "github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+import "github.com/inikalaev/database-seed-cli/pkg/seedapi"
 
 // byteaMech emits random binary payloads for `bytea` columns. sqlemit formats
 // []byte as PG hex-escape (`'\x…'`), which is unambiguous regardless of the

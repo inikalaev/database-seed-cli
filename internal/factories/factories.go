@@ -5,7 +5,7 @@
 // earlier entries win when two factories return the same MatchScore.
 package factories
 
-import "github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+import "github.com/inikalaev/database-seed-cli/pkg/seedapi"
 
 // All returns every builtin factory in priority-friendly order. FK wins over
 // everything; name-driven matches come before type-driven fallbacks.

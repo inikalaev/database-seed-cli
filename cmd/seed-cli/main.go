@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ivannikolaev/seed-cli/cli/cmd/seed/cli"
+	"github.com/inikalaev/database-seed-cli/cmd/seed-cli/cli"
 )
 
 func main() {

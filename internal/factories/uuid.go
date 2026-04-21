@@ -3,7 +3,7 @@ package factories
 import (
 	"fmt"
 
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 // uuidMech emits RFC 4122 v4 UUIDs. Matches any column whose declared type is

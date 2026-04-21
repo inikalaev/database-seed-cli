@@ -1,6 +1,6 @@
 // Package seedapi is the public contract consumed by user-written mechanisms.
 //
-// Users drop Go files into a directory referenced via `seed generate --generators ./dir`.
+// Users drop Go files into a directory referenced via `seed generate --factories ./dir`.
 // Each file registers mechanisms from its init() using Register. The CLI wraps the
 // directory into a throwaway module, re-compiles, and runs the binary — so this
 // package is the single import surface that external code may depend on.

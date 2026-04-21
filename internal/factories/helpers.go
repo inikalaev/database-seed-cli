@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 // inclusiveIntN draws a uniform int from [lo, hi] inclusive. Callers pass

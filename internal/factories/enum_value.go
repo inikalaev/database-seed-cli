@@ -1,6 +1,6 @@
 package factories
 
-import "github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+import "github.com/inikalaev/database-seed-cli/pkg/seedapi"
 
 // enumValue samples uniformly from the labels discovered during introspection.
 // Override via params.weights (map[label]int) once a weighted variant is needed —

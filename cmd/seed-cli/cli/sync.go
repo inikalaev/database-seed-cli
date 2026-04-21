@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/config"
-	"github.com/ivannikolaev/seed-cli/cli/internal/introspect"
-	"github.com/ivannikolaev/seed-cli/cli/internal/registry"
+	"github.com/inikalaev/database-seed-cli/internal/config"
+	"github.com/inikalaev/database-seed-cli/internal/introspect"
+	"github.com/inikalaev/database-seed-cli/internal/registry"
 	"github.com/spf13/cobra"
 )
 

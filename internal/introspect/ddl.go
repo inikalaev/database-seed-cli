@@ -7,7 +7,7 @@ import (
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/schema"
+	"github.com/inikalaev/database-seed-cli/internal/schema"
 )
 
 // DDL parses a SQL DDL file (e.g. from pg_dump --schema-only) into schema.Model.

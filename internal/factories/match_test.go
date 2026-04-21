@@ -3,7 +3,7 @@ package factories
 import (
 	"testing"
 
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 // TestBuiltinMatchTiers pins the contract "which MatchScore does each generic

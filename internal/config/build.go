@@ -1,8 +1,8 @@
 package config
 
 import (
-	"github.com/ivannikolaev/seed-cli/cli/internal/registry"
-	"github.com/ivannikolaev/seed-cli/cli/internal/schema"
+	"github.com/inikalaev/database-seed-cli/internal/registry"
+	"github.com/inikalaev/database-seed-cli/internal/schema"
 )
 
 const defaultRowCount = 100

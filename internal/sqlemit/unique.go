@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/config"
+	"github.com/inikalaev/database-seed-cli/internal/config"
 )
 
 // uniqueTracker rejects row tuples that would collide with already-emitted

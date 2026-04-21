@@ -3,7 +3,7 @@ package factories
 import (
 	"fmt"
 
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 // urlMech is a NameMatch-tier mechanism for columns clearly holding URLs. It

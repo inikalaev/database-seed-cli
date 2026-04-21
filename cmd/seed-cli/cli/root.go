@@ -25,6 +25,7 @@ func NewRootCmd() *cobra.Command {
 		newIntrospectCmd(),
 		newGenerateCmd(),
 		newValidateCmd(),
+		newFixCmd(),
 	)
 
 	return root

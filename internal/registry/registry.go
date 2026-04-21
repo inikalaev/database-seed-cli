@@ -8,9 +8,9 @@ package registry
 import (
 	"strings"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/factories"
-	"github.com/ivannikolaev/seed-cli/cli/internal/schema"
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/internal/factories"
+	"github.com/inikalaev/database-seed-cli/internal/schema"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 type Registry struct {

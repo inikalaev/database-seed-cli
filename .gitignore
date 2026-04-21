@@ -1,4 +1,4 @@
 bin/
 coverage.out
 coverage.html
-seed
+/seed

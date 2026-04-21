@@ -1,42 +1,56 @@
 # database-seed-cli
 
-Go CLI for generating **relationally consistent** synthetic data for PostgreSQL databases.
+[![CI](https://github.com/inikalaev/database-seed-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/inikalaev/database-seed-cli/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/inikalaev/database-seed-cli)](https://goreportcard.com/report/github.com/inikalaev/database-seed-cli)
+[![Go Reference](https://pkg.go.dev/badge/github.com/inikalaev/database-seed-cli.svg)](https://pkg.go.dev/github.com/inikalaev/database-seed-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Useful for: populating local development environments, preparing realistic datasets for **load testing**, and writing deterministic integration test fixtures.
+Generate **relationally consistent** synthetic data for PostgreSQL — reads your live schema and emits a ready-to-run SQL seed script. FK constraints, cycles, and row counts are all handled automatically.
 
-> **Database support:** PostgreSQL only. MySQL, SQLite and others are planned for future releases.
+```
+$ seed-cli init --dsn postgres://localhost/myapp -o seed.yaml
+$ seed-cli generate -c seed.yaml -o seed.sql
+$ psql $DATABASE_URL -f seed.sql
+Seeded 1 000 users · 10 234 orders · 42 817 events in 0.3s
+```
 
-Two explicit phases:
+Two phases, zero manual FK wiring:
 
-1. **Introspect → config.** `seed init --dsn <…> -o seed.yaml` reads the live schema and writes a YAML config where every column gets a `factory` (e.g. `pk_serial`, `email`, `fkref`). Columns that inference cannot classify are flagged `unresolved: true`.
-2. **Config → SQL.** `seed generate -c seed.yaml -o seed.sql` walks the FK graph, generates rows in dependency order, and writes a single SQL script. You run it: `psql -f seed.sql`.
+1. **Introspect → config.** `seed-cli init` reads the live schema and writes a YAML config where every column gets a `factory` (`pk_serial`, `email`, `fkref`, …). Columns inference can't classify are flagged `unresolved: true` so you know exactly what to review.
+2. **Config → SQL.** `seed-cli generate` walks the FK graph, inserts in dependency order, and writes a single SQL script.
+
+> **Database support:** PostgreSQL only. MySQL, SQLite, and others are planned.
 
 ## Install
 
 ```bash
-git clone https://github.com/inikalaev/database-seed-cli
+# Go toolchain (recommended — single binary, stays current)
+go install github.com/inikalaev/database-seed-cli/cmd/seed-cli@latest
+
+# Build from source
+git clone https://github.com/inikalaev/database-seed-cli.git
 cd database-seed-cli
-make build            # produces ./bin/seed-cli
+go install ./cmd/seed-cli
 ```
 
-Requires Go 1.25+. The `--generators` flag additionally requires a Go toolchain at runtime (the CLI recompiles itself with your plugins).
+Requires Go 1.25+. The `--factories` flag additionally requires a Go toolchain at runtime (the CLI recompiles itself with your plugins).
 
 ## Quick start
 
 ```bash
 # Create a fresh config from a live DB
-./bin/seed-cli init --dsn postgres://user:pass@localhost/app -o seed.yaml
+seed-cli init --dsn postgres://user:pass@localhost/app -o seed.yaml
 
 # Edit seed.yaml — set row_count, tweak factories/params, resolve `unresolved: true`
 
 # Re-introspect after schema changes — user edits are preserved
-./bin/seed-cli sync --dsn postgres://user:pass@localhost/app -c seed.yaml
+seed-cli sync --dsn postgres://user:pass@localhost/app -c seed.yaml
 
 # Lint the config
-./bin/seed-cli validate -c seed.yaml
+seed-cli validate -c seed.yaml
 
 # Emit SQL and apply
-./bin/seed-cli generate -c seed.yaml -o seed.sql
+seed-cli generate -c seed.yaml -o seed.sql
 psql $DATABASE_URL -f seed.sql
 ```
 
@@ -70,14 +84,89 @@ Both flags accept short form (`table`) or fully-qualified (`schema.table`), and 
 | `seed-cli sync`           | Re-introspect → merge into existing YAML (idempotent).         |
 | `seed-cli introspect`     | Print raw schema JSON (debug / tooling).                       |
 | `seed-cli validate`       | Report unresolved columns, cycles, missing FK targets.         |
+| `seed-cli fix`            | Interactively walk through `validate` findings and apply fixes. |
 | `seed-cli generate`       | Read config → emit SQL file.                                   |
+
+## Diagnostics: reading `validate` output
+
+`seed-cli validate` prints issues at three severity levels:
+
+- `ERR` — blocks `generate`; the SQL script will fail on apply. Must be fixed.
+- `WARN` — likely failure on apply or correctness issue (duplicates, NULL in NOT NULL). Resolve before running against real data.
+- `INFO` — constraint the generator cannot automate (composite UNIQUE/FK, CHECK, EXCLUDE, partial UNIQUE). A reminder of manual responsibility.
+
+Output ends with a summary `N error(s) · M warning(s) · K info` and a hint to run `seed-cli fix` for auto-fixable issues.
+
+### All issue kinds
+
+`→` marks issues that `seed-cli fix` can resolve interactively. The rest require manual config edits.
+
+| Kind | Lv | Meaning | How to fix | `fix` |
+|------|----|---------|------------|-------|
+| `unresolved` | WARN | Inference produced a low-confidence match (score < WeakNameMatch). | Set `factory:` explicitly, or leave as-is if the fallback is acceptable. | ✓ |
+| `no-factory` | ERR | Column has no `factory:`, `value:`, or `values:` set. | Add `factory: <name>` or `value: <literal>`. | ✓ |
+| `unknown-factory` | ERR | `factory:` names an unregistered factory (typo or missing plugin). | Fix the name or wire the plugin via `--factories`. | ✓ |
+| `value-type-mismatch` | ERR | Literal in `value:` is incompatible with `data_type`. | Replace with a compatible literal or remove `value:`. | ✓ |
+| `fkref-missing-target` | ERR | `factory: fkref` but `params.target` is empty. | Add `params: { target: schema.table.column }`. | ✓ |
+| `fkref-target-not-found` | ERR | `target` points to a column/table not in the config. | Fix the path to a real PK column. | ✓ |
+| `row-count-per-missing` | ERR | A key in `row_count_per` references a table not in the config. | Remove the key or rename it to an existing table. | ✓ |
+| `fkref-empty-pool` | ERR | NOT NULL fkref targets a table with `row_count: 0` — pool is empty. | Raise parent `row_count`, set `nullable: true`, or add `value:`. | ✓ |
+| `fkref-in-cycle` | ERR | NOT NULL fkref is in an FK cycle; first emission will produce NULL in a NOT NULL column. | Set `nullable: true` or `value:`. | ✓ |
+| `unique-unsafe-factory` | WARN | Column has UNIQUE but factory doesn't guarantee uniqueness (e.g. `string`). | Switch to `uuid`/`pk_serial`/`token`, or accept the risk. | ✓ |
+| `composite-unique` | INFO | Composite UNIQUE across 2+ columns. Uniqueness of tuples can't be checked automatically. | Ensure the combination of factories produces unique tuples; sometimes needs a custom correlated generator. | – |
+| `composite-fk` | WARN | Multiple fkref columns reference different columns of the same parent — likely a composite FK. | fkref samples columns independently; tuple consistency isn't guaranteed. Write a custom generator that reads all related fields from one parent row. | – |
+| `deferrable-cycle` | INFO | FK cycle detected, but all edges are DEFERRABLE. The emitter wraps the script in `SET CONSTRAINTS ALL DEFERRED`. | No action required. | – |
+| `non-deferrable-cycle` | ERR | FK cycle with at least one non-deferrable edge. `SET CONSTRAINTS` won't help — apply will fail. | Make the edge DEFERRABLE in the DB (`ALTER TABLE ... INITIALLY DEFERRED`) or allow NULL to break the cycle. | – |
+| `check-not-applied` | INFO | Column has a CHECK the parser couldn't auto-translate to `params` (multi-column or complex expression). | Manually set `params: { min, max, values, max_len }` so the factory respects the CHECK. | – |
+| `exclude` | WARN | EXCLUDE constraint (e.g. overlap-prevention on `tstzrange`). Generator cannot satisfy it. | Options: set `row_count: 0`, write a custom paired generator, or accept that apply may fail. | – |
+| `partial-unique` | INFO | UNIQUE with a `WHERE` clause (e.g. soft-delete `WHERE deleted_at IS NULL`). Filter isn't applied during generation. | Ensure generated data won't violate the filtered UNIQUE — typically just need distinct keys in matching rows. | – |
+
+### Interactive fixing: `seed-cli fix`
+
+```bash
+seed-cli fix -c seed.yaml
+```
+
+Walks through all auto-fixable issues (✓ above), prompting for a resolution on each. After each accepted fix the config is **written to disk immediately** — Ctrl+C is safe at any point; completed fixes persist, and the next run picks up where you left off.
+
+Flags:
+- `-c, --config` — path to YAML (default `seed.yaml`).
+- `--dry-run` — walk through prompts without writing changes. Useful to preview what `fix` would do.
+
+Note: saving re-orders columns alphabetically and drops comments, same as `sync`.
+
+Example session:
+```
+Found 6 fixable issue(s). Ctrl+C at any time — your edits are saved after each fix.
+
+[1/6] WARN  public.customers.created_at  unresolved
+? Pick a factory:
+  > timestamp  (score 60)  [current]
+    enter value manually
+    keep as unresolved
+    skip for now
+  ✓ applied
+```
+
+After a session, run `seed-cli validate` to see only the remaining non-auto issues and anything you explicitly skipped.
+
+### Not auto-fixable
+
+`composite-unique`, `composite-fk`, `check-not-applied`, `exclude`, `partial-unique`, `deferrable-cycle`, and `non-deferrable-cycle` require manual config edits or schema changes. They stay in `validate` output as persistent reminders — `fix` never prompts for them.
+
+Typical strategies:
+- **Composite constraints** — write a custom generator that sees all dependent columns at once (see *Extending: custom factories*).
+- **CHECK/EXCLUDE** — tighten generator `params` to the range the constraint allows.
+- **Non-deferrable cycle** — fix the DB schema; there's no way to seed around it.
+
+---
 
 ## Design invariants
 
 - **Idempotent merge.** `seed-cli sync` preserves every user edit; schema-derived fields refresh; removed tables/columns are flagged `removed: true`, not deleted.
 - **Unresolved marking.** Inference never silently guesses — columns it cannot classify land in the config with `unresolved: true`.
 - **Shared relation graph.** FK topology and insert order live in `internal/relations`; one source of truth for CLI and consumers.
-- **Go plugins via a folder.** Drop `.go` files into a directory, pass `--generators ./dir`. The CLI recompiles itself with your factories and caches the binary under `$XDG_CACHE_HOME/seed-cli/<hash>`. MVP needs `SEED_CLI_SRC=<path to cli/>`.
+- **Go plugins via a folder.** Drop `.go` files into a directory, pass `--factories ./dir`. The CLI recompiles itself with your factories and caches the binary under `$XDG_CACHE_HOME/seed-cli/<hash>`. Requires `SEED_CLI_SRC` pointing at this repository root (the directory containing `go.mod`).
 
 ---
 
@@ -276,16 +365,16 @@ When `values` is present the emitter builds the JSON object from those specs and
 
 ## Extending: custom factories
 
-Convention: **one generator per file**. Builtins live under `internal/factories/<name>.go` with shared predicates in `helpers.go` and registration order in `factories.go` (`All()`). User plugins follow the same rule under their `--generators ./dir`.
+Convention: **one generator per file**. Builtins live under `internal/factories/<name>.go` with shared predicates in `helpers.go` and registration order in `factories.go` (`All()`). User plugins follow the same rule under their `--factories ./dir`.
 
 ```bash
-export SEED_CLI_SRC=/path/to/seed-cli/cli
-seed-cli generate -c seed.yaml -o seed.sql --generators ./seed-generators
+export SEED_CLI_SRC=$(pwd)   # root of this repo (directory containing go.mod)
+seed-cli generate -c seed.yaml -o seed.sql --factories ./seed-factories
 ```
 
-On first use the CLI compiles an augmented binary (your generators + stock factories) and caches it under `~/.cache/seed-cli/<hash>`. Subsequent runs re-exec the cached binary.
+On first use the CLI compiles an augmented binary (your factories + stock factories) and caches it under `~/.cache/seed-cli/<hash>`. Subsequent runs re-exec the cached binary.
 
-See [`examples/custom-generators/sku.go`](examples/custom-generators/sku.go) for a complete reference plugin.
+See [`examples/custom-factories/sku.go`](examples/custom-factories/sku.go) for a complete reference plugin.
 
 ### Template
 
@@ -297,7 +386,7 @@ package seedgens
 import (
     "fmt"
 
-    "github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+    "github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 type SKU struct{}
@@ -355,15 +444,15 @@ func TestSKUGenerates(t *testing.T) {
 }
 ```
 
-Run `go test ./...` inside the generators directory.
+Run `go test ./...` inside the factories directory.
 
 ---
 
 ## Development
 
 ```bash
-make build      # ./bin/seed
-go test ./...   # unit tests
+go install ./cmd/seed-cli
+go test ./...
 ```
 
 ## Contributing

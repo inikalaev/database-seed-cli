@@ -3,7 +3,7 @@ package factories
 import (
 	"fmt"
 
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 // jsonAny emits a minimal JSON object so the column is not NULL. Real-world

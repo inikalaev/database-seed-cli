@@ -3,7 +3,7 @@ package relations
 import (
 	"testing"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/config"
+	"github.com/inikalaev/database-seed-cli/internal/config"
 )
 
 func mkCol(mech string, params map[string]any) *config.ColumnSpec {

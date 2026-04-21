@@ -1,6 +1,6 @@
 package factories
 
-import "github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+import "github.com/inikalaev/database-seed-cli/pkg/seedapi"
 
 type counterMech struct{}
 

@@ -3,8 +3,8 @@ package registry
 import (
 	"testing"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/factories"
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/internal/factories"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 func TestInferBuiltins(t *testing.T) {

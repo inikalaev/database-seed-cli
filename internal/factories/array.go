@@ -5,7 +5,7 @@ import (
 	"math/rand/v2"
 	"strings"
 
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 // arrayMech handles 1-D arrays of primitive element types. The element family

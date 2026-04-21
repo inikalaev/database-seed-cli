@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/config"
-	"github.com/ivannikolaev/seed-cli/cli/internal/factories"
-	"github.com/ivannikolaev/seed-cli/cli/internal/registry"
-	"github.com/ivannikolaev/seed-cli/cli/internal/relations"
+	"github.com/inikalaev/database-seed-cli/internal/config"
+	"github.com/inikalaev/database-seed-cli/internal/factories"
+	"github.com/inikalaev/database-seed-cli/internal/registry"
+	"github.com/inikalaev/database-seed-cli/internal/relations"
 )
 
 func intp(v int) *int { return &v }

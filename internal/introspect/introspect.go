@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/schema"
+	"github.com/inikalaev/database-seed-cli/internal/schema"
 )
 
 type Options struct {

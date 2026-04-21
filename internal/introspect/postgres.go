@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/schema"
+	"github.com/inikalaev/database-seed-cli/internal/schema"
 	"github.com/jackc/pgx/v5"
 )
 

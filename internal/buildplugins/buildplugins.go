@@ -1,20 +1,20 @@
 // Package buildplugins compiles a directory of user-provided Go mechanism files
 // into an augmented `seed` binary and delegates execution to it.
 //
-// Model: the CLI is a Go toolkit. When --generators ./dir is passed, the main
-// process writes a throwaway module that imports both this CLI's cmd/seed/cli
+// Model: the CLI is a Go toolkit. When --factories ./dir is passed, the main
+// process writes a throwaway module that imports both this CLI's cmd/seed-cli/cli
 // package and every .go file in ./dir (assumed to register mechanisms via
 // `seedapi.Register` in an init()), then builds and execs it with the original
-// argv (minus the --generators flag, which is consumed here).
+// argv (minus the --factories flag, which is consumed here).
 //
 // The resulting binary is cached in ${XDG_CACHE_HOME:-~/.cache}/seed-cli/<hash>.
-// The hash covers: sha256 of every .go file in the generators dir + the
+// The hash covers: sha256 of every .go file in the factories dir + the
 // resolved seed-cli source revision. Cache hits re-exec immediately.
 //
 // Requirements:
 //   - Go toolchain installed (go in PATH).
 //   - `SEED_CLI_SRC` env var pointing at this repo's checkout, OR the user's
-//     generators dir contains a go.mod that already imports the published
+//     factories dir contains a go.mod that already imports the published
 //     seed-cli module. The former is the dev workflow; the latter is the
 //     released-binary workflow (v2).
 package buildplugins
@@ -32,28 +32,28 @@ import (
 	"strings"
 )
 
-const modulePath = "github.com/ivannikolaev/seed-cli/cli"
+const modulePath = "github.com/inikalaev/database-seed-cli"
 
-// RunWithGenerators builds (or reuses) an augmented seed binary for the given
-// generators dir and re-executes the current process through it. Returns only
+// RunWithFactories builds (or reuses) an augmented seed binary for the given
+// factories dir and re-executes the current process through it. Returns only
 // if the build step fails; on success it exec's and does not return.
 // Build compiles (or reuses from cache) an augmented seed binary for the given
-// generators dir and returns its path. SEED_CLI_SRC must be set.
+// factories dir and returns its path. SEED_CLI_SRC must be set.
 func Build(genDir string) (string, error) {
 	absDir, err := filepath.Abs(genDir)
 	if err != nil {
-		return "", fmt.Errorf("generators path: %w", err)
+		return "", fmt.Errorf("factories path: %w", err)
 	}
 	srcDir := os.Getenv("SEED_CLI_SRC")
 	if srcDir == "" {
-		return "", fmt.Errorf("SEED_CLI_SRC env var is not set — point it at this repo's ./cli directory to use --generators in MVP")
+		return "", fmt.Errorf("SEED_CLI_SRC env var is not set — point it at this repo's ./cli directory to use --factories in MVP")
 	}
 	absSrc, err := filepath.Abs(srcDir)
 	if err != nil {
 		return "", fmt.Errorf("SEED_CLI_SRC: %w", err)
 	}
 
-	hash, err := hashGeneratorDir(absDir, absSrc)
+	hash, err := hashFactoriesDir(absDir, absSrc)
 	if err != nil {
 		return "", err
 	}
@@ -82,10 +82,10 @@ func Build(genDir string) (string, error) {
 	return binPath, nil
 }
 
-// RunWithGenerators builds (or reuses) an augmented seed binary for the given
-// generators dir and re-executes the current process through it. Returns only
+// RunWithFactories builds (or reuses) an augmented seed binary for the given
+// factories dir and re-executes the current process through it. Returns only
 // if the build step fails; on success it exec's and does not return.
-func RunWithGenerators(genDir string, argv []string) error {
+func RunWithFactories(genDir string, argv []string) error {
 	binPath, err := Build(genDir)
 	if err != nil {
 		return err
@@ -117,7 +117,7 @@ func cacheDir() (string, error) {
 	return filepath.Join(home, ".cache", "seed-cli"), nil
 }
 
-func hashGeneratorDir(dir, src string) (string, error) {
+func hashFactoriesDir(dir, src string) (string, error) {
 	h := sha256.New()
 	fmt.Fprintln(h, "seed-cli-src:", src)
 	entries, err := listGoFiles(dir)
@@ -193,7 +193,7 @@ func hashTreeGoFiles(h io.Writer, root string) error {
 func listGoFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("read generators dir %s: %w", dir, err)
+		return nil, fmt.Errorf("read factories dir %s: %w", dir, err)
 	}
 	var out []string
 	for _, e := range entries {
@@ -238,7 +238,7 @@ import (
 	"fmt"
 	"os"
 
-	"%s/cmd/seed/cli"
+	"%s/cmd/seed-cli/cli"
 )
 
 func main() {

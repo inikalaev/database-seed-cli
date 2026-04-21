@@ -8,12 +8,12 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/config"
-	"github.com/ivannikolaev/seed-cli/cli/internal/factories"
-	"github.com/ivannikolaev/seed-cli/cli/internal/registry"
-	"github.com/ivannikolaev/seed-cli/cli/internal/relations"
-	"github.com/ivannikolaev/seed-cli/cli/internal/sqlemit"
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/internal/config"
+	"github.com/inikalaev/database-seed-cli/internal/factories"
+	"github.com/inikalaev/database-seed-cli/internal/registry"
+	"github.com/inikalaev/database-seed-cli/internal/relations"
+	"github.com/inikalaev/database-seed-cli/internal/sqlemit"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 // updateGolden lets contributors refresh the golden SQL after an intentional

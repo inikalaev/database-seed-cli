@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/config"
+	"github.com/inikalaev/database-seed-cli/internal/config"
 )
 
 // polyPlan precomputes emission metadata for a table's polymorphic pairs.

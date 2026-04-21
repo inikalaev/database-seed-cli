@@ -13,10 +13,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ivannikolaev/seed-cli/cli/internal/config"
-	"github.com/ivannikolaev/seed-cli/cli/internal/registry"
-	"github.com/ivannikolaev/seed-cli/cli/internal/relations"
-	"github.com/ivannikolaev/seed-cli/cli/internal/sqlemit"
+	"github.com/inikalaev/database-seed-cli/internal/config"
+	"github.com/inikalaev/database-seed-cli/internal/registry"
+	"github.com/inikalaev/database-seed-cli/internal/relations"
+	"github.com/inikalaev/database-seed-cli/internal/sqlemit"
 )
 
 type Config = config.Config

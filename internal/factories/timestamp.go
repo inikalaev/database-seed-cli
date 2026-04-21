@@ -3,7 +3,7 @@ package factories
 import (
 	"time"
 
-	"github.com/ivannikolaev/seed-cli/cli/pkg/seedapi"
+	"github.com/inikalaev/database-seed-cli/pkg/seedapi"
 )
 
 // timestampMech returns a moment inside a fixed one-year window anchored at
