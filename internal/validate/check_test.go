@@ -17,7 +17,7 @@ func emptyReg() *registry.Registry {
 	return registry.New(nil)
 }
 
-func oneTable(key string, t *config.Table) *config.Config {
+func oneTable(t *config.Table) *config.Config {
 	// relations.Build requires Schema+Name to be set on each table (they are
 	// computed by config.Unmarshal but not set when building manually).
 	t.Schema = "public"
@@ -25,12 +25,8 @@ func oneTable(key string, t *config.Table) *config.Config {
 	return &config.Config{
 		Version:  1,
 		Database: config.DatabaseSection{Dialect: "postgres"},
-		Tables:   map[string]*config.Table{key: t},
+		Tables:   map[string]*config.Table{"public.t": t},
 	}
-}
-
-func col(factory string) *config.ColumnSpec {
-	return &config.ColumnSpec{Factory: factory}
 }
 
 func rowCount(n int) *int { return &n }
@@ -52,7 +48,7 @@ func checkKinds(t *testing.T, cfg *config.Config, reg *registry.Registry) map[Ki
 // --- Column-level checks ---
 
 func TestCheck_Unresolved(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount: rowCount(1),
 		Columns:  map[string]*config.ColumnSpec{"c": {Unresolved: true, Factory: "string"}},
 	})
@@ -63,7 +59,7 @@ func TestCheck_Unresolved(t *testing.T) {
 }
 
 func TestCheck_NoFactory(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount: rowCount(1),
 		Columns:  map[string]*config.ColumnSpec{"c": {Factory: ""}},
 	})
@@ -74,7 +70,7 @@ func TestCheck_NoFactory(t *testing.T) {
 }
 
 func TestCheck_UnknownFactory(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount: rowCount(1),
 		Columns:  map[string]*config.ColumnSpec{"c": {Factory: "ghost"}},
 	})
@@ -85,7 +81,7 @@ func TestCheck_UnknownFactory(t *testing.T) {
 }
 
 func TestCheck_FKRefMissingTarget(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount: rowCount(1),
 		Columns:  map[string]*config.ColumnSpec{"c": {Factory: seedapi.FactoryFKRef}},
 	})
@@ -96,7 +92,7 @@ func TestCheck_FKRefMissingTarget(t *testing.T) {
 }
 
 func TestCheck_FKRefTargetNotFound(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount: rowCount(1),
 		Columns: map[string]*config.ColumnSpec{
 			"c": {Factory: seedapi.FactoryFKRef, Params: map[string]any{"target": "public.ghost.id"}},
@@ -144,7 +140,7 @@ func TestCheck_FKRefEmptyPool(t *testing.T) {
 // --- Table-level checks ---
 
 func TestCheck_RowCountPerMissing(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount:    rowCount(1),
 		RowCountPer: map[string][2]int{"ghost": {1, 3}},
 		Columns:     map[string]*config.ColumnSpec{"c": {Factory: "string"}},
@@ -156,7 +152,7 @@ func TestCheck_RowCountPerMissing(t *testing.T) {
 }
 
 func TestCheck_CompositeUnique(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount:   rowCount(1),
 		UniqueKeys: [][]string{{"a", "b"}},
 		Columns: map[string]*config.ColumnSpec{
@@ -171,7 +167,7 @@ func TestCheck_CompositeUnique(t *testing.T) {
 }
 
 func TestCheck_UniqueUnsafeFactory(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount:   rowCount(1),
 		UniqueKeys: [][]string{{"name"}},
 		// city does not implement UniqueGenerator → should warn.
@@ -184,7 +180,7 @@ func TestCheck_UniqueUnsafeFactory(t *testing.T) {
 }
 
 func TestCheck_CheckNotApplied(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount: rowCount(1),
 		Columns:  map[string]*config.ColumnSpec{"score": {Factory: "integer"}},
 		Checks: []config.CheckConstraint{
@@ -198,7 +194,7 @@ func TestCheck_CheckNotApplied(t *testing.T) {
 }
 
 func TestCheck_Exclude(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount: rowCount(1),
 		Columns:  map[string]*config.ColumnSpec{"r": {Factory: "string"}},
 		Excludes: []config.ExcludeConstraint{
@@ -212,7 +208,7 @@ func TestCheck_Exclude(t *testing.T) {
 }
 
 func TestCheck_PartialUnique(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount: rowCount(1),
 		Columns:  map[string]*config.ColumnSpec{"c": {Factory: "string"}},
 		PartialUniqueKeys: []config.PartialUniqueKey{
@@ -226,7 +222,7 @@ func TestCheck_PartialUnique(t *testing.T) {
 }
 
 func TestCheck_ValueTypeMismatch(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount: rowCount(1),
 		Columns: map[string]*config.ColumnSpec{
 			"n": {Value: "not-an-int", DataType: "integer"},
@@ -239,7 +235,7 @@ func TestCheck_ValueTypeMismatch(t *testing.T) {
 }
 
 func TestCheck_RemvedColumnSkipped(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		RowCount: rowCount(1),
 		Columns: map[string]*config.ColumnSpec{
 			"c": {Removed: true, Factory: ""},
@@ -252,7 +248,7 @@ func TestCheck_RemvedColumnSkipped(t *testing.T) {
 }
 
 func TestCheck_RemovedTableSkipped(t *testing.T) {
-	cfg := oneTable("public.t", &config.Table{
+	cfg := oneTable(&config.Table{
 		Removed:  true,
 		RowCount: rowCount(1),
 		Columns:  map[string]*config.ColumnSpec{"c": {Factory: ""}},

@@ -20,11 +20,11 @@ func smokeCtx(dataType, udtName, elem string) seedapi.GenContext {
 		params["element"] = elem
 	}
 	return seedapi.GenContext{
-		Column:  seedapi.Column{DataType: dataType, UDTName: udtName},
-		Row:     0,
-		Rng:     rand.New(rand.NewPCG(1, 2)),
-		Params:  seedapi.Params(params),
-		FKPool:  nilPool{},
+		Column: seedapi.Column{DataType: dataType, UDTName: udtName},
+		Row:    0,
+		Rng:    rand.New(rand.NewPCG(1, 2)),
+		Params: seedapi.Params(params),
+		FKPool: nilPool{},
 	}
 }
 
